@@ -1,0 +1,521 @@
+const api = require('./api');
+const WebSocket = require('ws');
+const config = require('./config');
+const uuid = require('uuid');
+const express = require('express');
+const path = require('path');
+const TradeHistory = require('./trade_history');
+const app = express();
+
+// WebSocket server for dashboard
+const WS_PORT = 8081; // ETH bot 8080'i kullanıyor
+const WS_HOST = '0.0.0.0';
+const dashboardWss = new WebSocket.Server({ 
+  host: WS_HOST,
+  port: WS_PORT 
+});
+
+// Express server for dashboard
+const HTTP_PORT = 3001; // ETH bot 3000'i kullanıyor
+const HTTP_HOST = '0.0.0.0';
+
+// Global State
+let state = {
+  // Position tracking
+  positionQty: 0,
+  positionCost: 0,
+  gridLevel: 0,
+  isLongPosition: true,
+
+  // Order tracking
+  activeOrders: new Map(),
+  filledOrders: new Map(),
+  initialBuyOrderId: null,
+  initialSellOrderId: null,
+  closingOrderId: null,
+
+  // Connection state
+  wsOrderbook: null,
+  wsTicker: null,
+  wsPrivate: null,
+  lastOrderbookData: null,
+
+  // Control flags
+  isProcessing: false,
+  isResetting: false,
+  lastOrderTime: 0,
+
+  // Statistics
+  startTime: Date.now(),
+  totalPnL: 0,
+  totalVolume: 0,
+  lastPrice: 0,
+  trades: [],
+  lastTradePrice: 0
+};
+
+// Constants for BTC
+const INITIAL_QUANTITY = 0.025;    // 0.025 BTC
+const QUANTITY_INCREMENT = 0.0025;  // Her seviyede 0.0025 BTC artış
+const INITIAL_SPREAD = 60;         // İlk spread 60 USD
+const SPREAD_INCREMENT = 20;       // Her seviyede 20 USD artış
+const MIN_ORDER_INTERVAL = 500;    // 500ms
+const MAX_POSITION = 0.5;          // 0.5 BTC
+
+// Fee constants
+const MAKER_FEE = -0.00005; // -0.005%
+const TAKER_FEE = 0.000225; // 0.0225%
+
+// Trade history instance
+const tradeHistory = new TradeHistory('BTC-USD');
+
+function calculateFee(price, quantity, isTaker) {
+  return price * quantity * (isTaker ? TAKER_FEE : MAKER_FEE);
+}
+
+// Logging
+function log(type, message, data = null) {
+  const time = new Date().toISOString();
+  if (data) {
+    console.log(`[${time}][BTC][${type}] ${message}`, data);
+  } else {
+    console.log(`[${time}][BTC][${type}] ${message}`);
+  }
+}
+
+// Order Management
+async function placeOrder(side, quantity, price, type = 'grid') {
+  try {
+    // Rate limit kontrolü
+    const now = Date.now();
+    if (now - state.lastOrderTime < MIN_ORDER_INTERVAL) {
+      await new Promise(resolve => setTimeout(resolve, MIN_ORDER_INTERVAL));
+    }
+
+    const orderParams = {
+      market: 'BTC-USD',
+      type: 'limit',
+      side,
+      quantity: quantity.toFixed(8),
+      price: price.toFixed(8)
+    };
+
+    const res = await api.createOrder(orderParams);
+    
+    state.activeOrders.set(res.orderId, {
+      side,
+      quantity,
+      price,
+      type,
+      time: Date.now()
+    });
+
+    log('ORDER', `${type.toUpperCase()} ${side} order placed`, {
+      quantity: quantity.toFixed(8),
+      price: price.toFixed(8),
+      orderId: res.orderId
+    });
+
+    state.lastOrderTime = Date.now();
+    return res.orderId;
+  } catch (err) {
+    if (err.code === 'EXCEEDED_RATE_LIMIT') {
+      await new Promise(resolve => setTimeout(resolve, MIN_ORDER_INTERVAL * 2));
+      return placeOrder(side, quantity, price, type);
+    } else if (err.code === 'INSUFFICIENT_FUNDS') {
+      log('ERROR', 'Insufficient funds for order', {
+        side,
+        quantity,
+        price
+      });
+      return null;
+    }
+    log('ERROR', 'Order placement failed', err.message);
+    return null;
+  }
+}
+
+async function cancelOrder(orderId) {
+  try {
+    const cancelParams = {
+      nonce: uuid.v1(),
+      wallet: config.walletAddress,
+      orderIds: [orderId]
+    };
+    await api.cancelOrders(cancelParams);
+    state.activeOrders.delete(orderId);
+    log('ORDER', 'Order canceled', { orderId });
+  } catch (err) {
+    log('ERROR', 'Order cancellation failed', err.message);
+  }
+}
+
+// Position Management
+function updatePosition(side, quantity, price) {
+  if (side === 'buy') {
+    state.positionQty += quantity;
+    state.positionCost += quantity * price;
+  } else {
+    state.positionQty -= quantity;
+    state.positionCost -= quantity * price;
+  }
+
+  log('POSITION', 'Updated', {
+    quantity: state.positionQty,
+    avgPrice: state.positionQty !== 0 ? state.positionCost / Math.abs(state.positionQty) : 0
+  });
+}
+
+// Grid Logic
+async function placeInitialOrders(basePrice) {
+  // Önce mevcut emirleri iptal et
+  for (const [orderId] of state.activeOrders) {
+    await cancelOrder(orderId);
+  }
+
+  const buyPrice = Math.round(basePrice - INITIAL_SPREAD);
+  const sellPrice = Math.round(basePrice + INITIAL_SPREAD);
+
+  log('GRID', 'Placing initial orders', {
+    buyPrice,
+    sellPrice,
+    quantity: INITIAL_QUANTITY
+  });
+
+  state.initialBuyOrderId = await placeOrder('buy', INITIAL_QUANTITY, buyPrice, 'initial');
+  if (!state.initialBuyOrderId) {
+    return;
+  }
+
+  await new Promise(resolve => setTimeout(resolve, MIN_ORDER_INTERVAL));
+  state.initialSellOrderId = await placeOrder('sell', INITIAL_QUANTITY, sellPrice, 'initial');
+}
+
+async function placeGridOrder(side, basePrice) {
+  // Miktar hesaplama: Her seviyede 0.0025 artış
+  const quantity = INITIAL_QUANTITY + (state.gridLevel * QUANTITY_INCREMENT);
+  
+  // Spread hesaplama: Her seviyede 20 USD artış
+  const spread = INITIAL_SPREAD + (state.gridLevel * SPREAD_INCREMENT);
+  const price = side === 'buy' ? 
+    Math.round(basePrice - spread) : 
+    Math.round(basePrice + spread);
+
+  if (Math.abs(state.positionQty) + quantity > MAX_POSITION) {
+    log('GRID', 'Max position size reached, skipping grid order');
+    return;
+  }
+
+  log('GRID', 'Placing grid order', {
+    gridLevel: state.gridLevel,
+    quantity,
+    spread,
+    price
+  });
+
+  await placeOrder(side, quantity, price, 'grid');
+}
+
+// Belirli bir seviyeye kadar olan toplam artışı hesapla
+function calculateTotalIncrement(level) {
+  let total = 0;
+  for (let i = 0; i < level; i++) {
+    total += QUANTITY_INCREMENT;
+  }
+  return total;
+}
+
+async function placeClosingOrder() {
+  if (state.positionQty === 0) return;
+
+  const avgPrice = state.positionCost / Math.abs(state.positionQty);
+  const side = state.positionQty > 0 ? 'sell' : 'buy';
+  const price = Math.round(avgPrice + (side === 'sell' ? INITIAL_SPREAD : -INITIAL_SPREAD));
+
+  if (state.closingOrderId) {
+    await cancelOrder(state.closingOrderId);
+  }
+
+  state.closingOrderId = await placeOrder(
+    side,
+    Math.abs(state.positionQty),
+    price,
+    'closing'
+  );
+}
+
+// WebSocket Handlers
+function handleOrderbookMessage(data) {
+  try {
+    const msg = JSON.parse(data);
+    if (msg.type === 'l1orderbook') {
+      state.lastOrderbookData = msg.data;
+      
+      // Eğer işlem yapılıyorsa veya aktif emirler varsa, yeni emir açma
+      if (state.isProcessing || state.activeOrders.size > 0 || state.gridLevel > 0) {
+        return;
+      }
+
+      state.isProcessing = true;
+      
+      const basePrice = (
+        parseFloat(msg.data.lp) * 0.4 +
+        parseFloat(msg.data.mp) * 0.4 +
+        parseFloat(msg.data.ip) * 0.2
+      );
+      
+      placeInitialOrders(basePrice)
+        .finally(() => {
+          state.isProcessing = false;
+        });
+    }
+  } catch (err) {
+    log('ERROR', 'Orderbook message processing failed', err.message);
+    state.isProcessing = false;
+  }
+}
+
+function handlePrivateMessage(data) {
+  try {
+    const msg = JSON.parse(data);
+    if (msg.type === 'orders' && msg.data && msg.data.x === 'fill' && msg.data.X === 'filled') {
+      const orderId = msg.data.i;
+      const side = msg.data.s;
+      const price = parseFloat(msg.data.p);
+      const quantity = parseFloat(msg.data.q);
+      const isTaker = msg.data.lq === "0"; // liquidity flag, 0 means taker
+
+      const orderInfo = state.activeOrders.get(orderId);
+      if (!orderInfo) return;
+
+      // Calculate fee and add to PnL immediately
+      const fee = calculateFee(price, quantity, isTaker);
+      state.totalPnL += isTaker ? -Math.abs(fee) : Math.abs(fee);
+      
+      // Calculate trade PnL only when closing a position
+      let tradePnL = 0;
+      const isClosing = (side === 'sell' && state.positionQty > 0) || (side === 'buy' && state.positionQty < 0);
+      
+      if (isClosing) {
+        const avgEntryPrice = state.positionCost / Math.abs(state.positionQty);
+        if (side === 'sell') { // Long position closing
+          tradePnL = (price - avgEntryPrice) * quantity;
+        } else { // Short position closing
+          tradePnL = (avgEntryPrice - price) * quantity;
+        }
+        state.totalPnL += tradePnL;
+
+        log('TRADE', 'Position closed', {
+          side,
+          entryPrice: avgEntryPrice,
+          exitPrice: price,
+          quantity,
+          tradePnL,
+          fee: isTaker ? -Math.abs(fee) : Math.abs(fee),
+          totalPnL: state.totalPnL
+        });
+      } else {
+        log('TRADE', 'Position opened/increased', {
+          side,
+          price,
+          quantity,
+          fee: isTaker ? -Math.abs(fee) : Math.abs(fee),
+          totalPnL: state.totalPnL
+        });
+      }
+
+      // Update position and stats
+      updatePosition(side, quantity, price);
+      state.lastPrice = price;
+      state.totalVolume += quantity * price;
+      
+      // Trade record
+      const trade = {
+        time: new Date().toISOString(),
+        side,
+        price,
+        quantity,
+        type: orderInfo.type,
+        fee: isTaker ? -Math.abs(fee) : Math.abs(fee),
+        isTaker,
+        pnl: isClosing ? tradePnL : null,
+        totalPnL: state.totalPnL
+      };
+      
+      // Add to state and history
+      state.trades.push(trade);
+      tradeHistory.addTrade(trade);
+
+      // Keep only last 100 trades in memory
+      if (state.trades.length > 100) {
+        state.trades = state.trades.slice(-100);
+      }
+
+      state.filledOrders.set(orderId, { ...orderInfo, fillPrice: price });
+      state.activeOrders.delete(orderId);
+
+      // Handle order types
+      if (orderInfo.type === 'closing') {
+        handleClosingOrderFill(orderId, side, price, quantity);
+      } else if (orderInfo.type === 'initial' || orderInfo.type === 'grid') {
+        if (state.positionQty === quantity || state.positionQty === -quantity) {
+          state.isLongPosition = side === 'buy';
+        }
+        handlePositionOpeningFill(orderId, side, price, quantity);
+      }
+    }
+  } catch (err) {
+    log('ERROR', 'Private message processing failed', err.message);
+  }
+}
+
+async function handlePositionOpeningFill(orderId, side, price, quantity) {
+  // İlk emirlerden biri dolduysa, diğerini iptal et
+  if (orderId === state.initialBuyOrderId && state.initialSellOrderId) {
+    await cancelOrder(state.initialSellOrderId);
+    state.initialSellOrderId = null;
+  } else if (orderId === state.initialSellOrderId && state.initialBuyOrderId) {
+    await cancelOrder(state.initialBuyOrderId);
+    state.initialBuyOrderId = null;
+  }
+
+  // Grid seviyesini sadece ilk pozisyonda artır
+  if (state.gridLevel === 0) {
+    state.gridLevel = 1;
+  }
+  
+  // Pozisyon varsa kapama emri aç/güncelle
+  if (Math.abs(state.positionQty) > 0) {
+    await placeClosingOrder();
+    
+    log('GRID', 'Updated closing order after position change', {
+      positionQty: state.positionQty,
+      gridLevel: state.gridLevel
+    });
+  }
+}
+
+async function handleClosingOrderFill(orderId, side, price, quantity) {
+  log('GRID', 'Position closed', {
+    side,
+    price,
+    quantity,
+    pnl: state.totalPnL
+  });
+
+  // Pozisyon hala açık mı kontrol et
+  if (Math.abs(state.positionQty) > 0.00000001) { // BTC için daha küçük tolerans
+    log('GRID', 'Remaining position detected after closing order', {
+      remainingQty: state.positionQty,
+      avgPrice: state.positionCost / Math.abs(state.positionQty)
+    });
+    
+    // Kalan pozisyon için yeni kapama emri aç
+    await placeClosingOrder();
+    return; // State'i sıfırlama, hala pozisyon var
+  }
+
+  // Pozisyon tamamen kapandıysa state'i sıfırla
+  log('GRID', 'All positions closed, resetting state');
+  
+  // Reset state
+  state = {
+    ...state,
+    positionQty: 0,
+    positionCost: 0,
+    gridLevel: 0,
+    isLongPosition: true,
+    isProcessing: false,
+    closingOrderId: null
+  };
+
+  // Cancel all open orders
+  for (const [orderId] of state.activeOrders) {
+    await cancelOrder(orderId);
+  }
+}
+
+// WebSocket Setup
+function setupWebSockets() {
+  // Orderbook
+  state.wsOrderbook = new WebSocket(`${config.wsUrl}/BTC-USD@l1orderbook`);
+  state.wsOrderbook.on('message', handleOrderbookMessage);
+  state.wsOrderbook.on('error', err => log('ERROR', 'Orderbook websocket error', err.message));
+  state.wsOrderbook.on('close', () => {
+    log('WS', 'Orderbook connection closed, reconnecting...');
+    setTimeout(setupWebSockets, 1000);
+  });
+
+  // Private
+  api.getWsToken().then(token => {
+    state.wsPrivate = new WebSocket(config.wsUrl);
+    state.wsPrivate.on('open', () => {
+      state.wsPrivate.send(JSON.stringify({
+        method: 'subscribe',
+        token,
+        subscriptions: ['orders']
+      }));
+    });
+    state.wsPrivate.on('message', handlePrivateMessage);
+    state.wsPrivate.on('error', err => log('ERROR', 'Private websocket error', err.message));
+    state.wsPrivate.on('close', () => {
+      log('WS', 'Private connection closed, reconnecting...');
+      setTimeout(setupWebSockets, 1000);
+    });
+  });
+
+  // Dashboard WebSocket broadcast
+  setInterval(() => {
+    try {
+      const dashboardData = {
+        uptime: Math.floor((Date.now() - state.startTime) / 1000),
+        totalPnL: state.totalPnL,
+        totalVolume: state.totalVolume,
+        lastPrice: state.lastPrice,
+        positionQty: state.positionQty,
+        gridLevel: state.gridLevel,
+        activeOrders: Array.from(state.activeOrders.entries()).map(([id, order]) => ({
+          id,
+          side: order.side,
+          price: order.price,
+          quantity: order.quantity,
+          isTaker: false,
+          fee: calculateFee(order.price, order.quantity, false)
+        })),
+        recentTrades: state.trades.slice(-100).reverse() // Son 100 trade'i ters sırada gönder
+      };
+
+      dashboardWss.clients.forEach(client => {
+        if (client.readyState === WebSocket.OPEN) {
+          client.send(JSON.stringify(dashboardData));
+        }
+      });
+    } catch (err) {
+      log('ERROR', 'Dashboard broadcast error', err.message);
+    }
+  }, 1000);
+}
+
+// Express static file serving
+app.use(express.static(path.join(__dirname, 'public')));
+
+// Start server
+app.listen(HTTP_PORT, HTTP_HOST, () => {
+  log('SERVER', `Dashboard server running on http://${HTTP_HOST}:${HTTP_PORT}`);
+  log('SERVER', `WebSocket server running on ws://${WS_HOST}:${WS_PORT}`);
+});
+
+// Start Bot
+async function startBot() {
+  log('BOT', 'Starting BTC Grid Bot...');
+  await tradeHistory.load();
+  
+  // Load previous stats
+  state.totalPnL = await tradeHistory.getTotalPnL();
+  state.totalVolume = await tradeHistory.getTotalVolume();
+  state.trades = await tradeHistory.getRecentTrades();
+  
+  setupWebSockets();
+}
+
+startBot(); 

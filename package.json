@@ -1,0 +1,37 @@
+{
+  "name": "grid-trading-bot",
+  "version": "1.0.0",
+  "description": "Grid trading bot for ETH and BTC markets with real-time dashboard",
+  "main": "start_bots.js",
+  "scripts": {
+    "start": "node start_bots.js",
+    "pm2": "pm2 start ecosystem.config.js"
+  },
+  "dependencies": {
+    "axios": "^1.6.7",
+    "crypto-js": "^4.2.0",
+    "dotenv": "^16.4.5",
+    "ethers": "^6.11.1",
+    "express": "^4.18.3",
+    "pm2": "^5.3.1",
+    "uuid": "^9.0.1",
+    "ws": "^8.16.0"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yourusername/grid-trading-bot.git"
+  },
+  "keywords": [
+    "trading",
+    "bot",
+    "grid",
+    "ethereum",
+    "bitcoin",
+    "crypto"
+  ],
+  "author": "Your Name",
+  "license": "MIT"
+}
