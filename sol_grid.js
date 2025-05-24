@@ -60,9 +60,9 @@ const BASE_INCREMENT = 1;
 const INCREMENT_STEP = 0.5;
 const INITIAL_SPREAD = 0.3;
 const SPREAD_INCREMENT = 0.05; // Her seviyede 0.05 dolar artacak
-const CLOSING_SPREAD = 0.3;
+const CLOSING_SPREAD = 0.2;
 const MIN_ORDER_INTERVAL = 500; // ms
-const MAX_POSITION = 30; // SOL
+const MAX_POSITION = 100; // SOL
 
 // Fee constants
 const MAKER_FEE = -0.00005; // -0.005%

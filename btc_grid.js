@@ -56,11 +56,11 @@ let state = {
 
 // Constants
 const INITIAL_QUANTITY = 0.03;
-const BASE_INCREMENT = 0.01;
+const BASE_INCREMENT = 0.005;
 const INCREMENT_STEP = 0.002;
 const INITIAL_SPREAD = 80;
 const SPREAD_INCREMENT = 10; // Her seviyede 10 dolar artacak
-const CLOSING_SPREAD = 80;
+const CLOSING_SPREAD = 50;
 const MIN_ORDER_INTERVAL = 500; // ms
 const MAX_POSITION = 0.5; // BTC
 

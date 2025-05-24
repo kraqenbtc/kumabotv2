@@ -56,11 +56,11 @@ let state = {
 
 // Constants
 const INITIAL_QUANTITY = 1.1;
-const BASE_INCREMENT = 0.4;
-const INCREMENT_STEP = 0.1;
+const BASE_INCREMENT = 0.3;
+const INCREMENT_STEP = 0.05;
 const INITIAL_SPREAD = 2;
 const SPREAD_INCREMENT = 0.5; // Her seviyede 0.5 dolar artacak
-const CLOSING_SPREAD = 2;
+const CLOSING_SPREAD = 1;
 const MIN_ORDER_INTERVAL = 500; // ms
 const MAX_POSITION = 30; // ETH
 
