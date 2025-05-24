@@ -346,6 +346,117 @@
                     </div>
                 </div>
             </div>
+
+            <!-- SOL Bot Container -->
+            <div class="col-md-6">
+                <h2 class="text-center mb-3">SOL Grid Bot</h2>
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="card">
+                            <div class="card-body">
+                                <h5 class="card-title">Uptime</h5>
+                                <p class="stat-value" id="sol-uptime">-</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="card">
+                            <div class="card-body">
+                                <h5 class="card-title">Total PnL</h5>
+                                <p class="stat-value" id="sol-pnl">-</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="card">
+                            <div class="card-body">
+                                <h5 class="card-title">Trading Volume</h5>
+                                <p class="stat-value" id="sol-volume">-</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="card">
+                            <div class="card-body">
+                                <h5 class="card-title">Last Price</h5>
+                                <p class="stat-value" id="sol-lastPrice">-</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="row mt-4">
+                    <div class="col-md-6">
+                        <div class="card">
+                            <div class="card-body">
+                                <h5 class="card-title">Position Details</h5>
+                                <div class="row">
+                                    <div class="col-6">
+                                        <p class="stat-label">Quantity</p>
+                                        <p class="stat-value" id="sol-positionQty">-</p>
+                                    </div>
+                                    <div class="col-6">
+                                        <p class="stat-label">Grid Level</p>
+                                        <p class="stat-value" id="sol-gridLevel">-</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="col-md-6">
+                        <div class="card">
+                            <div class="card-body">
+                                <h5 class="card-title">Active Orders</h5>
+                                <div class="table-container">
+                                    <table class="table table-sm">
+                                        <thead>
+                                            <tr>
+                                                <th>Side</th>
+                                                <th>Price</th>
+                                                <th>Quantity</th>
+                                                <th>Fee</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="sol-activeOrders">
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="row mt-4">
+                    <div class="col-12">
+                        <div class="card">
+                            <div class="card-body">
+                                <h5 class="card-title">Recent Trades</h5>
+                                <div class="table-container">
+                                    <div class="table-responsive">
+                                        <table class="table table-sm table-hover">
+                                            <thead>
+                                                <tr>
+                                                    <th class="time-cell">Time</th>
+                                                    <th>Type</th>
+                                                    <th>Side</th>
+                                                    <th class="price-cell">Price</th>
+                                                    <th class="quantity-cell">Quantity</th>
+                                                    <th class="fee-cell">Fee</th>
+                                                    <th class="pnl-cell">Trade PnL</th>
+                                                    <th class="pnl-cell">Total PnL</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="sol-recentTrades">
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -354,6 +465,7 @@
         const wsHost = window.location.hostname;
         const ethWs = new WebSocket(`ws://${wsHost}:8080`);
         const btcWs = new WebSocket(`ws://${wsHost}:8081`);
+        const solWs = new WebSocket(`ws://${wsHost}:8082`);
         
         function formatDuration(seconds) {
             const hours = Math.floor(seconds / 3600);
@@ -418,6 +530,11 @@
             updateBotData('btc', data);
         };
 
+        solWs.onmessage = function(event) {
+            const data = JSON.parse(event.data);
+            updateBotData('sol', data);
+        };
+
         // Tab switching
         document.querySelectorAll('#botTabs .nav-link').forEach(tab => {
             tab.addEventListener('click', (e) => {
@@ -434,7 +551,7 @@
         });
 
         // WebSocket error handling
-        [ethWs, btcWs].forEach(ws => {
+        [ethWs, btcWs, solWs].forEach(ws => {
             ws.onerror = function(error) {
                 console.error('WebSocket error:', error);
             };
