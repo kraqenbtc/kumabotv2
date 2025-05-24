@@ -7,16 +7,16 @@ const path = require('path');
 const TradeHistory = require('./trade_history');
 const app = express();
 
-// WebSocket server for dashboard
-const WS_PORT = 8081; // ETH bot 8080'i kullanıyor
+// WebSocket sunucusu için host ve port ayarları
+const WS_PORT = 8081;
 const WS_HOST = '0.0.0.0';
 const dashboardWss = new WebSocket.Server({ 
   host: WS_HOST,
   port: WS_PORT 
 });
 
-// Express server for dashboard
-const HTTP_PORT = 3001; // ETH bot 3000'i kullanıyor
+// Express sunucusu için port ayarı
+const HTTP_PORT = 3001;
 const HTTP_HOST = '0.0.0.0';
 
 // Global State
@@ -54,14 +54,14 @@ let state = {
   lastTradePrice: 0
 };
 
-// Constants for BTC
-const INITIAL_QUANTITY = 0.03;    // 0.03 BTC
-const BASE_INCREMENT = 0.01;      // Her seviyede 0.01 BTC artış
-const INCREMENT_STEP = 0.002;     // Her seviye için ek artış
-const INITIAL_SPREAD = 80;        // İlk spread 80 USD
-const CLOSING_SPREAD = 80;        // Kapanış spreadi
-const MIN_ORDER_INTERVAL = 500;   // 500ms
-const MAX_POSITION = 0.5;         // 0.5 BTC
+// Constants
+const INITIAL_QUANTITY = 0.03;
+const BASE_INCREMENT = 0.01;
+const INCREMENT_STEP = 0.002;
+const INITIAL_SPREAD = 80;
+const CLOSING_SPREAD = 80;
+const MIN_ORDER_INTERVAL = 500; // ms
+const MAX_POSITION = 0.5; // BTC
 
 // Fee constants
 const MAKER_FEE = -0.00005; // -0.005%
@@ -121,6 +121,7 @@ async function placeOrder(side, quantity, price, type = 'grid') {
     return res.orderId;
   } catch (err) {
     if (err.code === 'EXCEEDED_RATE_LIMIT') {
+      // Rate limit aşıldıysa bekle ve tekrar dene
       await new Promise(resolve => setTimeout(resolve, MIN_ORDER_INTERVAL * 2));
       return placeOrder(side, quantity, price, type);
     } else if (err.code === 'INSUFFICIENT_FUNDS') {
@@ -158,13 +159,12 @@ function updatePosition(side, quantity, price) {
     state.positionCost += quantity * price;
   } else {
     state.positionQty -= quantity;
-    state.positionCost -= quantity * price;
+    state.positionCost += quantity * price;
   }
 
   log('POSITION', 'Updated', {
     quantity: state.positionQty,
-    avgPrice: state.positionQty !== 0 ? state.positionCost / Math.abs(state.positionQty) : 0,
-    totalCost: state.positionCost
+    avgPrice: state.positionQty !== 0 ? state.positionCost / Math.abs(state.positionQty) : 0
   });
 }
 
@@ -186,7 +186,7 @@ async function placeInitialOrders(basePrice) {
 
   state.initialBuyOrderId = await placeOrder('buy', INITIAL_QUANTITY, buyPrice, 'initial');
   if (!state.initialBuyOrderId) {
-    return;
+    return; // Eğer alış emri açılamazsa satış emri açma
   }
 
   await new Promise(resolve => setTimeout(resolve, MIN_ORDER_INTERVAL));
@@ -205,8 +205,7 @@ async function placeGridOrder(side, basePrice) {
   // Yeni emir miktarı = önceki miktar + bu seviyenin artışı
   const quantity = prevQuantity + currentIncrement;
   
-  // Her seviyede spread artışı
-  const priceDiff = INITIAL_SPREAD + (state.gridLevel * 20);
+  const priceDiff = INITIAL_SPREAD + (state.gridLevel * 2);
   const price = side === 'buy' ? 
     Math.round(basePrice - priceDiff) : 
     Math.round(basePrice + priceDiff);
@@ -220,12 +219,10 @@ async function placeGridOrder(side, basePrice) {
     gridLevel: state.gridLevel,
     prevQuantity,
     increment: currentIncrement,
-    newQuantity: quantity,
-    price,
-    side
+    newQuantity: quantity
   });
 
-  return await placeOrder(side, quantity, price, 'grid');
+  await placeOrder(side, quantity, price, 'grid');
 }
 
 // Belirli bir seviyeye kadar olan toplam artışı hesapla
@@ -244,13 +241,6 @@ async function placeClosingOrder() {
   const side = state.positionQty > 0 ? 'sell' : 'buy';
   const price = Math.round(avgPrice + (side === 'sell' ? CLOSING_SPREAD : -CLOSING_SPREAD));
 
-  log('ORDER', 'Placing closing order', {
-    side,
-    quantity: Math.abs(state.positionQty),
-    price,
-    avgPrice
-  });
-
   if (state.closingOrderId) {
     await cancelOrder(state.closingOrderId);
   }
@@ -261,8 +251,6 @@ async function placeClosingOrder() {
     price,
     'closing'
   );
-
-  return state.closingOrderId;
 }
 
 // WebSocket Handlers
@@ -272,7 +260,7 @@ function handleOrderbookMessage(data) {
     if (msg.type === 'l1orderbook') {
       state.lastOrderbookData = msg.data;
       
-      // Eğer işlem yapılıyorsa veya aktif emirler varsa, yeni emir açma
+      // Eğer işlem yapılıyorsa veya herhangi bir emir varsa, yeni initial emirler açma
       if (state.isProcessing || state.activeOrders.size > 0 || state.gridLevel > 0) {
         return;
       }
@@ -296,6 +284,34 @@ function handleOrderbookMessage(data) {
   }
 }
 
+// Dashboard WebSocket handling
+function broadcastStats() {
+  const stats = {
+    uptime: Math.floor((Date.now() - state.startTime) / 1000), // saniye cinsinden
+    totalPnL: state.totalPnL.toFixed(2),
+    totalVolume: state.totalVolume.toFixed(2),
+    lastPrice: state.lastPrice,
+    positionQty: state.positionQty,
+    gridLevel: state.gridLevel,
+    activeOrders: Array.from(state.activeOrders.entries()).map(([id, order]) => ({
+      id,
+      side: order.side,
+      price: order.price,
+      quantity: order.quantity
+    })),
+    recentTrades: state.trades.slice(-10) // son 10 trade
+  };
+
+  dashboardWss.clients.forEach(client => {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(JSON.stringify(stats));
+    }
+  });
+}
+
+// Her 1 saniyede bir istatistikleri gönder
+setInterval(broadcastStats, 1000);
+
 function handlePrivateMessage(data) {
   try {
     const msg = JSON.parse(data);
@@ -311,6 +327,7 @@ function handlePrivateMessage(data) {
 
       // Calculate fee and add to PnL immediately
       const fee = calculateFee(price, quantity, isTaker);
+      // Maker fee is positive (rebate), Taker fee is negative
       state.totalPnL += isTaker ? -Math.abs(fee) : Math.abs(fee);
       
       // Calculate trade PnL only when closing a position
@@ -391,34 +408,23 @@ function handlePrivateMessage(data) {
 }
 
 async function handleGridOrderFill(orderId, side, price, quantity) {
-  try {
-    // İlk emirlerden biri dolduysa, diğerini iptal et
-    if (orderId === state.initialBuyOrderId && state.initialSellOrderId) {
-      await cancelOrder(state.initialSellOrderId);
-      state.initialSellOrderId = null;
-    } else if (orderId === state.initialSellOrderId && state.initialBuyOrderId) {
-      await cancelOrder(state.initialBuyOrderId);
-      state.initialBuyOrderId = null;
-    }
-
-    // Grid seviyesini artır
-    state.gridLevel++;
-    
-    // Önce closing order'ı aç
-    const closingOrderId = await placeClosingOrder();
-    
-    // Sonra bir sonraki grid emrini aç - Aynı yönde devam et
-    const gridOrderId = await placeGridOrder(side, price);
-
-    log('GRID', 'Orders placed after fill', {
-      gridLevel: state.gridLevel,
-      side,
-      closingOrderId,
-      gridOrderId
-    });
-  } catch (err) {
-    log('ERROR', 'Error in handleGridOrderFill', err.message);
+  // İlk emirlerden biri dolduysa, diğerini iptal et
+  if (orderId === state.initialBuyOrderId && state.initialSellOrderId) {
+    await cancelOrder(state.initialSellOrderId);
+    state.initialSellOrderId = null;
+  } else if (orderId === state.initialSellOrderId && state.initialBuyOrderId) {
+    await cancelOrder(state.initialBuyOrderId);
+    state.initialBuyOrderId = null;
   }
+
+  // Grid seviyesini artır ve yeni grid emri aç
+  state.gridLevel++;
+  
+  // Önce closing order'ı aç
+  await placeClosingOrder();
+  
+  // Sonra bir sonraki grid emrini aç
+  await placeGridOrder(side, price);
 }
 
 async function handleClosingOrderFill(orderId, side, price, quantity) {
@@ -428,18 +434,6 @@ async function handleClosingOrderFill(orderId, side, price, quantity) {
     quantity,
     pnl: state.totalPnL
   });
-
-  // Pozisyon hala açık mı kontrol et
-  if (Math.abs(state.positionQty) > 0.00000001) { // BTC için daha küçük tolerans
-    log('GRID', 'Remaining position detected after closing order', {
-      remainingQty: state.positionQty,
-      avgPrice: state.positionCost / Math.abs(state.positionQty)
-    });
-    
-    // Kalan pozisyon için yeni kapama emri aç
-    await placeClosingOrder();
-    return; // State'i sıfırlama, hala pozisyon var
-  }
 
   // Reset state
   state = {
@@ -486,47 +480,7 @@ function setupWebSockets() {
       setTimeout(setupWebSockets, 1000);
     });
   });
-
-  // Dashboard WebSocket broadcast
-  setInterval(() => {
-    try {
-      const dashboardData = {
-        uptime: Math.floor((Date.now() - state.startTime) / 1000),
-        totalPnL: state.totalPnL,
-        totalVolume: state.totalVolume,
-        lastPrice: state.lastPrice,
-        positionQty: state.positionQty,
-        gridLevel: state.gridLevel,
-        activeOrders: Array.from(state.activeOrders.entries()).map(([id, order]) => ({
-          id,
-          side: order.side,
-          price: order.price,
-          quantity: order.quantity,
-          isTaker: false,
-          fee: calculateFee(order.price, order.quantity, false)
-        })),
-        recentTrades: state.trades.slice(-100).reverse() // Son 100 trade'i ters sırada gönder
-      };
-
-      dashboardWss.clients.forEach(client => {
-        if (client.readyState === WebSocket.OPEN) {
-          client.send(JSON.stringify(dashboardData));
-        }
-      });
-    } catch (err) {
-      log('ERROR', 'Dashboard broadcast error', err.message);
-    }
-  }, 1000);
 }
-
-// Express static file serving
-app.use(express.static(path.join(__dirname, 'public')));
-
-// Start server
-app.listen(HTTP_PORT, HTTP_HOST, () => {
-  log('SERVER', `Dashboard server running on http://${HTTP_HOST}:${HTTP_PORT}`);
-  log('SERVER', `WebSocket server running on ws://${WS_HOST}:${WS_PORT}`);
-});
 
 // Start Bot
 async function startBot() {
@@ -540,5 +494,14 @@ async function startBot() {
   
   setupWebSockets();
 }
+
+// Express static file serving
+app.use(express.static(path.join(__dirname, 'public')));
+
+// Start server
+app.listen(HTTP_PORT, HTTP_HOST, () => {
+  log('SERVER', `Dashboard server running on http://${HTTP_HOST}:${HTTP_PORT}`);
+  log('SERVER', `WebSocket server running on ws://${WS_HOST}:${WS_PORT}`);
+});
 
 startBot(); 
