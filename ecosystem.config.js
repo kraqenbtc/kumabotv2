@@ -1,20 +1,40 @@
 module.exports = {
   apps: [
     {
-      name: 'grid-bots',
-      script: 'start_bots.js',
-      watch: ['eth_grid.js', 'btc_grid.js', 'sol_grid.js', 'api.js', 'config.js', 'trade_history.js'],
-      ignore_watch: ['node_modules', 'data'],
-      watch_options: {
-        followSymlinks: false
-      },
+      name: 'kumabot-btc',
+      script: './node_modules/.bin/ts-node',
+      args: 'src/index.ts BTC-USD',
+      instances: 1,
+      autorestart: true,
+      watch: false,
+      max_memory_restart: '1G',
       env: {
         NODE_ENV: 'production'
-      },
-      log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
-      merge_logs: true,
-      out_file: './logs/grid-bots.log',
-      error_file: './logs/grid-bots-error.log'
+      }
+    },
+    {
+      name: 'kumabot-eth',
+      script: './node_modules/.bin/ts-node',
+      args: 'src/index.ts ETH-USD',
+      instances: 1,
+      autorestart: true,
+      watch: false,
+      max_memory_restart: '1G',
+      env: {
+        NODE_ENV: 'production'
+      }
+    },
+    {
+      name: 'kumabot-sol',
+      script: './node_modules/.bin/ts-node',
+      args: 'src/index.ts SOL-USD',
+      instances: 1,
+      autorestart: true,
+      watch: false,
+      max_memory_restart: '1G',
+      env: {
+        NODE_ENV: 'production'
+      }
     }
   ]
 }; 
