@@ -3,9 +3,11 @@ module.exports = {
     {
       name: 'grid-bots',
       script: 'start_bots.js',
-      autorestart: true,
-      watch: false,
-      max_memory_restart: '1G',
+      watch: ['eth_grid.js', 'btc_grid.js', 'sol_grid.js', 'api.js', 'config.js', 'trade_history.js'],
+      ignore_watch: ['node_modules', 'data'],
+      watch_options: {
+        followSymlinks: false
+      },
       env: {
         NODE_ENV: 'production'
       },
