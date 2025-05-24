@@ -17,4 +17,7 @@ function startBot(scriptName) {
 startBot('eth_grid.js');
 
 // BTC Grid Bot'u başlat
-startBot('btc_grid.js'); 
+startBot('btc_grid.js');
+
+// SOL Grid Bot'u başlat
+startBot('sol_grid.js'); 

@@ -55,13 +55,13 @@ let state = {
 };
 
 // Constants
-const INITIAL_QUANTITY = 0.6;
-const BASE_INCREMENT = 0.2;
-const INCREMENT_STEP = 0.05;
+const INITIAL_QUANTITY = 1.1;
+const BASE_INCREMENT = 0.4;
+const INCREMENT_STEP = 0.1;
 const INITIAL_SPREAD = 2;
 const CLOSING_SPREAD = 2;
 const MIN_ORDER_INTERVAL = 500; // ms
-const MAX_POSITION = 20; // ETH
+const MAX_POSITION = 30; // ETH
 
 // Fee constants
 const MAKER_FEE = -0.00005; // -0.005%
