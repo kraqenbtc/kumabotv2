@@ -118,12 +118,45 @@
         .pnl-cell {
             min-width: 120px;
         }
+        .total-stats {
+            background-color: #007bff;
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 30px;
+        }
+        .total-stats .stat-value {
+            font-size: 32px;
+            color: white;
+        }
+        .total-stats .stat-label {
+            color: rgba(255,255,255,0.8);
+            font-size: 16px;
+        }
     </style>
 </head>
 <body>
     <div class="container-fluid">
         <h1 class="text-center mb-4">Grid Bot Dashboard</h1>
         
+        <!-- Total Stats Panel -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="total-stats">
+                    <div class="row">
+                        <div class="col-md-6 text-center">
+                            <p class="stat-label">Total Trading Volume</p>
+                            <p class="stat-value" id="total-volume">-</p>
+                        </div>
+                        <div class="col-md-6 text-center">
+                            <p class="stat-label">Total PnL</p>
+                            <p class="stat-value" id="total-pnl">-</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <div class="row">
             <!-- ETH Bot Container -->
             <div class="col-md-6">
@@ -467,6 +500,13 @@
         const btcWs = new WebSocket(`ws://${wsHost}:8081`);
         const solWs = new WebSocket(`ws://${wsHost}:8082`);
         
+        // Store bot data for total calculations
+        const botData = {
+            eth: { totalPnL: 0, totalVolume: 0 },
+            btc: { totalPnL: 0, totalVolume: 0 },
+            sol: { totalPnL: 0, totalVolume: 0 }
+        };
+
         function formatDuration(seconds) {
             const hours = Math.floor(seconds / 3600);
             const minutes = Math.floor((seconds % 3600) / 60);
@@ -481,7 +521,25 @@
             }).format(num);
         }
 
+        function updateTotalStats() {
+            const totalPnL = botData.eth.totalPnL + botData.btc.totalPnL + botData.sol.totalPnL;
+            const totalVolume = botData.eth.totalVolume + botData.btc.totalVolume + botData.sol.totalVolume;
+
+            document.getElementById('total-pnl').textContent = `$${formatNumber(totalPnL)}`;
+            document.getElementById('total-pnl').className = `stat-value ${totalPnL >= 0 ? 'positive' : 'negative'}`;
+            document.getElementById('total-volume').textContent = `$${formatNumber(totalVolume)}`;
+        }
+
         function updateBotData(prefix, data) {
+            // Update bot data for total calculations
+            botData[prefix] = {
+                totalPnL: parseFloat(data.totalPnL) || 0,
+                totalVolume: parseFloat(data.totalVolume) || 0
+            };
+
+            // Update total stats
+            updateTotalStats();
+
             // Basic statistics
             document.getElementById(`${prefix}-uptime`).textContent = formatDuration(data.uptime);
             document.getElementById(`${prefix}-pnl`).textContent = `$${formatNumber(data.totalPnL)}`;
