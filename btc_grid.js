@@ -242,6 +242,13 @@ async function placeClosingOrder() {
   const side = state.positionQty > 0 ? 'sell' : 'buy';
   const price = Math.round(avgPrice + (side === 'sell' ? CLOSING_SPREAD : -CLOSING_SPREAD));
 
+  log('ORDER', 'Placing closing order', {
+    side,
+    quantity: Math.abs(state.positionQty),
+    price,
+    avgPrice
+  });
+
   if (state.closingOrderId) {
     await cancelOrder(state.closingOrderId);
   }
@@ -252,6 +259,8 @@ async function placeClosingOrder() {
     price,
     'closing'
   );
+
+  return state.closingOrderId;
 }
 
 // WebSocket Handlers
@@ -395,8 +404,8 @@ async function handlePositionOpeningFill(orderId, side, price, quantity) {
   // Önce closing order'ı aç
   await placeClosingOrder();
   
-  // Sonra bir sonraki grid emrini aç
-  await placeGridOrder(side === 'buy' ? 'sell' : 'buy', price);
+  // Sonra bir sonraki grid emrini aç - Aynı yönde devam et
+  await placeGridOrder(side, price);
 }
 
 async function handleClosingOrderFill(orderId, side, price, quantity) {
