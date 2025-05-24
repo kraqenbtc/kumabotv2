@@ -380,7 +380,7 @@ function handlePrivateMessage(data) {
         if (state.positionQty === quantity || state.positionQty === -quantity) {
           state.isLongPosition = side === 'buy';
         }
-        handlePositionOpeningFill(orderId, side, price, quantity);
+        handleGridOrderFill(orderId, side, price, quantity);
       }
     }
   } catch (err) {
@@ -388,7 +388,7 @@ function handlePrivateMessage(data) {
   }
 }
 
-async function handlePositionOpeningFill(orderId, side, price, quantity) {
+async function handleGridOrderFill(orderId, side, price, quantity) {
   // İlk emirlerden biri dolduysa, diğerini iptal et
   if (orderId === state.initialBuyOrderId && state.initialSellOrderId) {
     await cancelOrder(state.initialSellOrderId);
@@ -428,9 +428,6 @@ async function handleClosingOrderFill(orderId, side, price, quantity) {
     return; // State'i sıfırlama, hala pozisyon var
   }
 
-  // Pozisyon tamamen kapandıysa state'i sıfırla
-  log('GRID', 'All positions closed, resetting state');
-  
   // Reset state
   state = {
     ...state,
