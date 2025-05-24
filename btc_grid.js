@@ -55,12 +55,13 @@ let state = {
 };
 
 // Constants for BTC
-const INITIAL_QUANTITY = 0.025;    // 0.025 BTC
-const QUANTITY_INCREMENT = 0.0025;  // Her seviyede 0.0025 BTC artış
-const INITIAL_SPREAD = 60;         // İlk spread 60 USD
-const SPREAD_INCREMENT = 20;       // Her seviyede 20 USD artış
-const MIN_ORDER_INTERVAL = 500;    // 500ms
-const MAX_POSITION = 0.5;          // 0.5 BTC
+const INITIAL_QUANTITY = 0.03;    // 0.03 BTC
+const BASE_INCREMENT = 0.005;      // Her seviyede 0.01 BTC artış
+const INCREMENT_STEP = 0.002;     // Her seviye için ek artış
+const INITIAL_SPREAD = 60;        // İlk spread 60 USD
+const CLOSING_SPREAD = 60;        // Kapanış spreadi
+const MIN_ORDER_INTERVAL = 500;   // 500ms
+const MAX_POSITION = 0.5;         // 0.5 BTC
 
 // Fee constants
 const MAKER_FEE = -0.00005; // -0.005%
@@ -162,7 +163,8 @@ function updatePosition(side, quantity, price) {
 
   log('POSITION', 'Updated', {
     quantity: state.positionQty,
-    avgPrice: state.positionQty !== 0 ? state.positionCost / Math.abs(state.positionQty) : 0
+    avgPrice: state.positionQty !== 0 ? state.positionCost / Math.abs(state.positionQty) : 0,
+    totalCost: state.positionCost
   });
 }
 
@@ -192,14 +194,21 @@ async function placeInitialOrders(basePrice) {
 }
 
 async function placeGridOrder(side, basePrice) {
-  // Miktar hesaplama: Her seviyede 0.0025 artış
-  const quantity = INITIAL_QUANTITY + (state.gridLevel * QUANTITY_INCREMENT);
+  // Önceki emrin miktarını hesapla
+  const prevQuantity = state.gridLevel === 1 ? 
+    INITIAL_QUANTITY : // İlk grid için başlangıç miktarı
+    INITIAL_QUANTITY + calculateTotalIncrement(state.gridLevel - 1); // Önceki grid için toplam artış
   
-  // Spread hesaplama: Her seviyede 20 USD artış
-  const spread = INITIAL_SPREAD + (state.gridLevel * SPREAD_INCREMENT);
+  // Bu seviye için artış miktarını hesapla
+  const currentIncrement = BASE_INCREMENT + ((state.gridLevel - 1) * INCREMENT_STEP);
+  
+  // Yeni emir miktarı = önceki miktar + bu seviyenin artışı
+  const quantity = prevQuantity + currentIncrement;
+  
+  const priceDiff = INITIAL_SPREAD + (state.gridLevel * 20);
   const price = side === 'buy' ? 
-    Math.round(basePrice - spread) : 
-    Math.round(basePrice + spread);
+    Math.round(basePrice - priceDiff) : 
+    Math.round(basePrice + priceDiff);
 
   if (Math.abs(state.positionQty) + quantity > MAX_POSITION) {
     log('GRID', 'Max position size reached, skipping grid order');
@@ -208,8 +217,9 @@ async function placeGridOrder(side, basePrice) {
 
   log('GRID', 'Placing grid order', {
     gridLevel: state.gridLevel,
-    quantity,
-    spread,
+    prevQuantity,
+    increment: currentIncrement,
+    newQuantity: quantity,
     price
   });
 
@@ -220,7 +230,7 @@ async function placeGridOrder(side, basePrice) {
 function calculateTotalIncrement(level) {
   let total = 0;
   for (let i = 0; i < level; i++) {
-    total += QUANTITY_INCREMENT;
+    total += BASE_INCREMENT + (i * INCREMENT_STEP);
   }
   return total;
 }
@@ -230,7 +240,7 @@ async function placeClosingOrder() {
 
   const avgPrice = state.positionCost / Math.abs(state.positionQty);
   const side = state.positionQty > 0 ? 'sell' : 'buy';
-  const price = Math.round(avgPrice + (side === 'sell' ? INITIAL_SPREAD : -INITIAL_SPREAD));
+  const price = Math.round(avgPrice + (side === 'sell' ? CLOSING_SPREAD : -CLOSING_SPREAD));
 
   if (state.closingOrderId) {
     await cancelOrder(state.closingOrderId);
@@ -386,7 +396,7 @@ async function handlePositionOpeningFill(orderId, side, price, quantity) {
   await placeClosingOrder();
   
   // Sonra bir sonraki grid emrini aç
-  await placeGridOrder(side, price);
+  await placeGridOrder(side === 'buy' ? 'sell' : 'buy', price);
 }
 
 async function handleClosingOrderFill(orderId, side, price, quantity) {
