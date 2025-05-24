@@ -58,8 +58,8 @@ let state = {
 const INITIAL_QUANTITY = 8;
 const BASE_INCREMENT = 1;
 const INCREMENT_STEP = 0.5;
-const INITIAL_SPREAD = 0.2;
-const CLOSING_SPREAD = 0.2;
+const INITIAL_SPREAD = 0.3;
+const CLOSING_SPREAD = 0.3;
 const MIN_ORDER_INTERVAL = 500; // ms
 const MAX_POSITION = 30; // SOL
 
