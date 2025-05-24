@@ -175,8 +175,8 @@ async function placeInitialOrders(basePrice) {
     await cancelOrder(orderId);
   }
 
-  const buyPrice = Math.round(basePrice - INITIAL_SPREAD);
-  const sellPrice = Math.round(basePrice + INITIAL_SPREAD);
+  const buyPrice = (basePrice - INITIAL_SPREAD).toFixed(2);
+  const sellPrice = (basePrice + INITIAL_SPREAD).toFixed(2);
 
   log('GRID', 'Placing initial orders', {
     buyPrice,
@@ -184,13 +184,13 @@ async function placeInitialOrders(basePrice) {
     quantity: INITIAL_QUANTITY
   });
 
-  state.initialBuyOrderId = await placeOrder('buy', INITIAL_QUANTITY, buyPrice, 'initial');
+  state.initialBuyOrderId = await placeOrder('buy', INITIAL_QUANTITY, parseFloat(buyPrice), 'initial');
   if (!state.initialBuyOrderId) {
     return; // Eğer alış emri açılamazsa satış emri açma
   }
 
   await new Promise(resolve => setTimeout(resolve, MIN_ORDER_INTERVAL));
-  state.initialSellOrderId = await placeOrder('sell', INITIAL_QUANTITY, sellPrice, 'initial');
+  state.initialSellOrderId = await placeOrder('sell', INITIAL_QUANTITY, parseFloat(sellPrice), 'initial');
 }
 
 async function placeGridOrder(side, basePrice) {
@@ -205,10 +205,10 @@ async function placeGridOrder(side, basePrice) {
   // Yeni emir miktarı = önceki miktar + bu seviyenin artışı
   const quantity = prevQuantity + currentIncrement;
   
-  const priceDiff = INITIAL_SPREAD + (state.gridLevel * 2);
+  const priceDiff = INITIAL_SPREAD + (state.gridLevel * 0.1); // SOL için daha küçük artışlar
   const price = side === 'buy' ? 
-    Math.round(basePrice - priceDiff) : 
-    Math.round(basePrice + priceDiff);
+    parseFloat((basePrice - priceDiff).toFixed(2)) : 
+    parseFloat((basePrice + priceDiff).toFixed(2));
 
   if (Math.abs(state.positionQty) + quantity > MAX_POSITION) {
     log('GRID', 'Max position size reached, skipping grid order');
@@ -239,7 +239,7 @@ async function placeClosingOrder() {
 
   const avgPrice = state.positionCost / Math.abs(state.positionQty);
   const side = state.positionQty > 0 ? 'sell' : 'buy';
-  const price = Math.round(avgPrice + (side === 'sell' ? CLOSING_SPREAD : -CLOSING_SPREAD));
+  const price = parseFloat((avgPrice + (side === 'sell' ? CLOSING_SPREAD : -CLOSING_SPREAD)).toFixed(2));
 
   if (state.closingOrderId) {
     await cancelOrder(state.closingOrderId);
