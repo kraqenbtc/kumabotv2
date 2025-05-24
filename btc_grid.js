@@ -56,10 +56,10 @@ let state = {
 
 // Constants for BTC
 const INITIAL_QUANTITY = 0.03;    // 0.03 BTC
-const BASE_INCREMENT = 0.005;      // Her seviyede 0.01 BTC artış
+const BASE_INCREMENT = 0.01;      // Her seviyede 0.01 BTC artış
 const INCREMENT_STEP = 0.002;     // Her seviye için ek artış
-const INITIAL_SPREAD = 60;        // İlk spread 60 USD
-const CLOSING_SPREAD = 60;        // Kapanış spreadi
+const INITIAL_SPREAD = 80;        // İlk spread 80 USD
+const CLOSING_SPREAD = 80;        // Kapanış spreadi
 const MIN_ORDER_INTERVAL = 500;   // 500ms
 const MAX_POSITION = 0.5;         // 0.5 BTC
 
@@ -205,6 +205,7 @@ async function placeGridOrder(side, basePrice) {
   // Yeni emir miktarı = önceki miktar + bu seviyenin artışı
   const quantity = prevQuantity + currentIncrement;
   
+  // Her seviyede spread artışı
   const priceDiff = INITIAL_SPREAD + (state.gridLevel * 20);
   const price = side === 'buy' ? 
     Math.round(basePrice - priceDiff) : 
@@ -220,10 +221,11 @@ async function placeGridOrder(side, basePrice) {
     prevQuantity,
     increment: currentIncrement,
     newQuantity: quantity,
-    price
+    price,
+    side
   });
 
-  await placeOrder(side, quantity, price, 'grid');
+  return await placeOrder(side, quantity, price, 'grid');
 }
 
 // Belirli bir seviyeye kadar olan toplam artışı hesapla
@@ -389,23 +391,34 @@ function handlePrivateMessage(data) {
 }
 
 async function handleGridOrderFill(orderId, side, price, quantity) {
-  // İlk emirlerden biri dolduysa, diğerini iptal et
-  if (orderId === state.initialBuyOrderId && state.initialSellOrderId) {
-    await cancelOrder(state.initialSellOrderId);
-    state.initialSellOrderId = null;
-  } else if (orderId === state.initialSellOrderId && state.initialBuyOrderId) {
-    await cancelOrder(state.initialBuyOrderId);
-    state.initialBuyOrderId = null;
-  }
+  try {
+    // İlk emirlerden biri dolduysa, diğerini iptal et
+    if (orderId === state.initialBuyOrderId && state.initialSellOrderId) {
+      await cancelOrder(state.initialSellOrderId);
+      state.initialSellOrderId = null;
+    } else if (orderId === state.initialSellOrderId && state.initialBuyOrderId) {
+      await cancelOrder(state.initialBuyOrderId);
+      state.initialBuyOrderId = null;
+    }
 
-  // Grid seviyesini artır
-  state.gridLevel++;
-  
-  // Önce closing order'ı aç
-  await placeClosingOrder();
-  
-  // Sonra bir sonraki grid emrini aç - Aynı yönde devam et
-  await placeGridOrder(side, price);
+    // Grid seviyesini artır
+    state.gridLevel++;
+    
+    // Önce closing order'ı aç
+    const closingOrderId = await placeClosingOrder();
+    
+    // Sonra bir sonraki grid emrini aç - Aynı yönde devam et
+    const gridOrderId = await placeGridOrder(side, price);
+
+    log('GRID', 'Orders placed after fill', {
+      gridLevel: state.gridLevel,
+      side,
+      closingOrderId,
+      gridOrderId
+    });
+  } catch (err) {
+    log('ERROR', 'Error in handleGridOrderFill', err.message);
+  }
 }
 
 async function handleClosingOrderFill(orderId, side, price, quantity) {
