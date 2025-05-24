@@ -379,20 +379,14 @@ async function handlePositionOpeningFill(orderId, side, price, quantity) {
     state.initialBuyOrderId = null;
   }
 
-  // Grid seviyesini sadece ilk pozisyonda artır
-  if (state.gridLevel === 0) {
-    state.gridLevel = 1;
-  }
+  // Grid seviyesini artır
+  state.gridLevel++;
   
-  // Pozisyon varsa kapama emri aç/güncelle
-  if (Math.abs(state.positionQty) > 0) {
-    await placeClosingOrder();
-    
-    log('GRID', 'Updated closing order after position change', {
-      positionQty: state.positionQty,
-      gridLevel: state.gridLevel
-    });
-  }
+  // Önce closing order'ı aç
+  await placeClosingOrder();
+  
+  // Sonra bir sonraki grid emrini aç
+  await placeGridOrder(side, price);
 }
 
 async function handleClosingOrderFill(orderId, side, price, quantity) {
