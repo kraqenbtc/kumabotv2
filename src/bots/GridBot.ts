@@ -65,7 +65,23 @@ export class GridBot {
       totalPnL: 0,
       totalVolume: 0,
       lastPrice: 0,
-      trades: []
+      trades: [],
+      position: {
+        quantity: 0,
+        cost: 0,
+        avgPrice: 0
+      },
+      stats: {
+        totalTrades: 0,
+        winningTrades: 0,
+        totalVolume: 0,
+        totalPnL: 0,
+        fees: {
+          total: 0,
+          maker: 0,
+          taker: 0
+        }
+      }
     };
   }
 
@@ -564,5 +580,98 @@ export class GridBot {
     }
     
     this.log('BOT', 'Bot stopped');
+  }
+
+  // API Methods
+  public getStatus(): 'running' | 'stopped' | 'error' {
+    if (this.wsOrderbook && this.wsOrderbook.readyState === WebSocket.OPEN) {
+      return 'running';
+    }
+    return 'stopped';
+  }
+
+  public getState(): BotState {
+    return {
+      ...this.state,
+      position: {
+        quantity: this.state.positionQty,
+        cost: this.state.positionCost,
+        avgPrice: this.state.positionQty !== 0 ? 
+          this.state.positionCost / Math.abs(this.state.positionQty) : 0
+      },
+      stats: {
+        totalTrades: this.state.trades.length,
+        winningTrades: this.state.trades.filter(t => t.pnl && t.pnl > 0).length,
+        totalVolume: this.state.totalVolume,
+        totalPnL: this.state.totalPnL,
+        fees: {
+          total: this.state.trades.reduce((sum, t) => sum + (t.fee || 0), 0),
+          maker: this.state.trades.filter(t => !t.isTaker).reduce((sum, t) => sum + (t.fee || 0), 0),
+          taker: this.state.trades.filter(t => t.isTaker).reduce((sum, t) => sum + (t.fee || 0), 0)
+        }
+      }
+    };
+  }
+
+  public getUptime(): number {
+    return Math.floor((Date.now() - this.state.startTime) / 1000);
+  }
+
+  public getConfig(): BotConfig {
+    return { ...this.config };
+  }
+
+  public getTrades(): Trade[] {
+    return [...this.state.trades];
+  }
+
+  public updateConfig(newConfig: BotConfig): void {
+    this.config = { ...newConfig };
+    this.log('CONFIG', 'Bot configuration updated', this.config);
+  }
+
+  public reset(): void {
+    // Reset state while preserving connection info
+    const startTime = this.state.startTime;
+    this.state = {
+      positionQty: 0,
+      positionCost: 0,
+      gridLevel: 0,
+      isLongPosition: true,
+      activeOrders: new Map(),
+      filledOrders: new Map(),
+      initialBuyOrderId: null,
+      initialSellOrderId: null,
+      closingOrderId: null,
+      isProcessing: false,
+      isResetting: false,
+      lastOrderTime: 0,
+      startTime: startTime,
+      totalPnL: 0,
+      totalVolume: 0,
+      lastPrice: 0,
+      trades: [],
+      position: {
+        quantity: 0,
+        cost: 0,
+        avgPrice: 0
+      },
+      stats: {
+        totalTrades: 0,
+        winningTrades: 0,
+        totalVolume: 0,
+        totalPnL: 0,
+        fees: {
+          total: 0,
+          maker: 0,
+          taker: 0
+        }
+      }
+    };
+    
+    // Clear trade history
+    this.tradeHistory = new TradeHistory(this.config.symbol);
+    
+    this.log('RESET', 'Bot state and history reset');
   }
 } 

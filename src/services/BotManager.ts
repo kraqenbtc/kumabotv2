@@ -20,9 +20,38 @@ export class BotManager extends EventEmitter {
     super();
   }
 
+  // Get bot by symbol (returns the GridBot instance directly)
+  getBot(symbol: string): GridBot | undefined {
+    // First try to get by exact symbol as ID
+    const instance = this.bots.get(symbol);
+    if (instance) {
+      return instance.bot;
+    }
+    
+    // If not found, search for bot with matching symbol
+    for (const [botId, instance] of this.bots) {
+      if (instance.config.symbol === symbol) {
+        return instance.bot;
+      }
+    }
+    
+    return undefined;
+  }
+
+  // Get all bots as a record (for API compatibility)
+  getAllBots(): Record<string, GridBot> {
+    const result: Record<string, GridBot> = {};
+    
+    for (const [symbol, instance] of this.bots) {
+      result[symbol] = instance.bot;
+    }
+    
+    return result;
+  }
+
   // Create a new bot instance
   async createBot(botConfig: BotConfig): Promise<string> {
-    const botId = botConfig.id || `${botConfig.symbol}-${Date.now()}`;
+    const botId = botConfig.id || botConfig.symbol; // Use symbol as default ID
     
     // Check if bot already exists
     if (this.bots.has(botId)) {
@@ -57,15 +86,55 @@ export class BotManager extends EventEmitter {
     return botId;
   }
 
-  // Start a bot
-  async startBot(botId: string): Promise<void> {
-    const instance = this.bots.get(botId);
+  // Start a bot (accepts both symbol and botId)
+  async startBot(symbolOrBotId: string): Promise<boolean> {
+    let instance = this.bots.get(symbolOrBotId);
+    
+    // If not found by ID, try to find by symbol
     if (!instance) {
-      throw new Error(`Bot ${botId} not found`);
+      for (const [botId, inst] of this.bots) {
+        if (inst.config.symbol === symbolOrBotId) {
+          instance = inst;
+          break;
+        }
+      }
+    }
+    
+    // If still not found, try to create a new bot
+    if (!instance) {
+      try {
+        const symbolConfig = SYMBOL_CONFIGS[symbolOrBotId as keyof typeof SYMBOL_CONFIGS];
+        if (!symbolConfig) {
+          console.error(`Invalid symbol: ${symbolOrBotId}`);
+          return false;
+        }
+        
+        const botConfig: BotConfig = {
+          symbol: symbolOrBotId as keyof typeof SYMBOL_CONFIGS,
+          initialQuantity: 0.1,
+          baseIncrement: 0.02,
+          incrementStep: 0.01,
+          initialSpread: 10,
+          spreadIncrement: 5,
+          closingSpread: 5,
+          maxPosition: 10,
+          enabled: true
+        };
+        
+        const botId = await this.createBot(botConfig);
+        instance = this.bots.get(botId);
+      } catch (error) {
+        console.error(`Failed to create bot for ${symbolOrBotId}:`, error);
+        return false;
+      }
+    }
+
+    if (!instance) {
+      return false;
     }
 
     if (instance.status === 'running') {
-      throw new Error(`Bot ${botId} is already running`);
+      return true; // Already running
     }
 
     try {
@@ -75,21 +144,33 @@ export class BotManager extends EventEmitter {
       
       await instance.bot.start();
       
-      this.emit('bot:started', { botId });
+      this.emit('bot:started', { botId: symbolOrBotId });
+      return true;
     } catch (error: any) {
       instance.status = 'error';
       instance.error = error.message;
       
-      this.emit('bot:error', { botId, error: error.message });
-      throw error;
+      this.emit('bot:error', { botId: symbolOrBotId, error: error.message });
+      return false;
     }
   }
 
   // Stop a bot
-  async stopBot(botId: string): Promise<void> {
-    const instance = this.bots.get(botId);
+  async stopBot(symbolOrBotId: string): Promise<void> {
+    let instance = this.bots.get(symbolOrBotId);
+    
+    // If not found by ID, try to find by symbol
     if (!instance) {
-      throw new Error(`Bot ${botId} not found`);
+      for (const [botId, inst] of this.bots) {
+        if (inst.config.symbol === symbolOrBotId) {
+          instance = inst;
+          break;
+        }
+      }
+    }
+
+    if (!instance) {
+      throw new Error(`Bot ${symbolOrBotId} not found`);
     }
 
     if (instance.status === 'stopped') {
@@ -100,12 +181,12 @@ export class BotManager extends EventEmitter {
       await instance.bot.stop();
       instance.status = 'stopped';
       
-      this.emit('bot:stopped', { botId });
+      this.emit('bot:stopped', { botId: symbolOrBotId });
     } catch (error: any) {
       instance.status = 'error';
       instance.error = error.message;
       
-      this.emit('bot:error', { botId, error: error.message });
+      this.emit('bot:error', { botId: symbolOrBotId, error: error.message });
       throw error;
     }
   }
@@ -140,8 +221,8 @@ export class BotManager extends EventEmitter {
     return this.bots.get(botId);
   }
 
-  // Get all bots
-  getAllBots(): Map<string, BotInstance> {
+  // Get all bot instances
+  getAllBotInstances(): Map<string, BotInstance> {
     return new Map(this.bots);
   }
 

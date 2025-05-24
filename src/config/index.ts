@@ -42,4 +42,22 @@ export function validateConfig(config: Config): void {
       throw new Error(`Missing required configuration: ${field}`);
     }
   }
-} 
+}
+
+// Export supported symbols
+export const SUPPORTED_SYMBOLS = [
+  'BTC-USD',
+  'ETH-USD', 
+  'SOL-USD',
+  'BERA-USD',
+  'XRP-USD'
+];
+
+// Decimal places configuration for each symbol
+export const SYMBOL_DECIMALS: Record<string, number> = {
+  'BTC-USD': 0,    // BTC prices are integers
+  'ETH-USD': 1,    // ETH has 1 decimal place
+  'SOL-USD': 2,    // SOL has 2 decimal places
+  'BERA-USD': 3,   // BERA has 3 decimal places  
+  'XRP-USD': 4     // XRP has 4 decimal places
+}; 

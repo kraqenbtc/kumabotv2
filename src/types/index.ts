@@ -89,6 +89,26 @@ export interface BotState {
   totalVolume: number;
   lastPrice: number;
   trades: Trade[];
+
+  // Computed position info
+  position: {
+    quantity: number;
+    cost: number;
+    avgPrice: number;
+  };
+
+  // Computed statistics
+  stats: {
+    totalTrades: number;
+    winningTrades: number;
+    totalVolume: number;
+    totalPnL: number;
+    fees: {
+      total: number;
+      maker: number;
+      taker: number;
+    };
+  };
 }
 
 export interface OrderInfo {

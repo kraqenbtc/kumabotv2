@@ -11,6 +11,7 @@ A sophisticated grid trading bot for Kuma exchange, built with TypeScript for en
 - 🛡️ **Risk Management**: Built-in stop loss and take profit
 - 🔄 **Auto-Recovery**: Handles disconnections gracefully
 - 📝 **Trade History**: Persistent trade logging and statistics
+- 🌐 **REST API**: Full-featured API for bot management
 
 ## Supported Symbols
 
@@ -44,6 +45,9 @@ Create a `.env` file in the root directory:
 # Exchange Configuration
 WS_URL=wss://v1-ws.kuma.bid
 HTTP_URL=https://v1.kuma.bid
+
+# API Server Configuration
+API_PORT=4000
 
 # BTC Bot Configuration
 BTC_WALLET_PRIVATE_KEY=0x...
@@ -105,6 +109,16 @@ pm2 logs
 pm2 stop all
 ```
 
+### Running the API Server
+
+```bash
+# Start API server
+npm run start:api
+
+# Start API server in development mode
+npm run dev:api
+```
+
 ### Dashboard Access
 
 Each bot runs its own dashboard:
@@ -113,6 +127,120 @@ Each bot runs its own dashboard:
 - SOL: http://localhost:3002 (WebSocket: ws://localhost:8082)
 - BERA: http://localhost:3003 (WebSocket: ws://localhost:8083)
 - XRP: http://localhost:3004 (WebSocket: ws://localhost:8084)
+
+## API Documentation
+
+The API server runs on port 4000 by default (configurable via `API_PORT` env variable).
+
+### Base URL
+```
+http://localhost:4000
+```
+
+### Health Check
+```http
+GET /health
+```
+
+### System Endpoints
+
+#### Get Supported Symbols
+```http
+GET /api/symbols
+```
+
+#### Get System Info
+```http
+GET /api/info
+```
+
+#### Get API Documentation
+```http
+GET /api/docs
+```
+
+### Bot Management Endpoints
+
+#### List All Bots
+```http
+GET /api/bots
+```
+
+#### Get Bot Details
+```http
+GET /api/bots/:symbol
+```
+
+#### Start a Bot
+```http
+POST /api/bots/:symbol/start
+```
+
+#### Stop a Bot
+```http
+POST /api/bots/:symbol/stop
+```
+
+#### Update Bot Configuration
+```http
+PUT /api/bots/:symbol/config
+Content-Type: application/json
+
+{
+  "initialQuantity": 0.1,
+  "baseIncrement": 0.02,
+  "incrementStep": 0.01,
+  "initialSpread": 10,
+  "spreadIncrement": 5,
+  "closingSpread": 5,
+  "maxPosition": 10,
+  "stopLoss": -100,
+  "takeProfit": 200,
+  "maxGridLevel": 10
+}
+```
+
+#### Get Bot Orders
+```http
+GET /api/bots/:symbol/orders
+```
+
+#### Get Bot Trades
+```http
+GET /api/bots/:symbol/trades?limit=50&offset=0
+```
+
+#### Get Bot Statistics
+```http
+GET /api/bots/:symbol/stats
+```
+
+#### Reset Bot
+```http
+POST /api/bots/:symbol/reset
+```
+
+### WebSocket API
+
+Connect to the WebSocket server for real-time updates:
+
+```javascript
+const ws = new WebSocket('ws://localhost:4000');
+
+// Subscribe to a specific bot
+ws.send(JSON.stringify({
+  type: 'subscribe',
+  symbol: 'BTC-USD'
+}));
+
+// Receive bot updates
+ws.on('message', (data) => {
+  const message = JSON.parse(data);
+  if (message.type === 'bot-update') {
+    console.log('Bot update:', message.symbol, message.data);
+  }
+});
+```
 
 ## Grid Strategy
 
@@ -149,12 +277,16 @@ kumabotv2/
 │   ├── index.ts           # Main entry point
 │   ├── types/             # TypeScript definitions
 │   ├── config/            # Configuration management
+│   ├── services/          # Core services
 │   │   ├── KumaClient.ts  # Exchange API wrapper
 │   │   ├── TradeHistory.ts # Trade persistence
 │   │   └── BotManager.ts  # Bot lifecycle management
 │   ├── bots/              # Bot implementations
 │   │   └── GridBot.ts     # Main grid bot logic
-│   └── api/               # REST API (planned)
+│   └── api/               # REST API
+│       ├── server.ts      # Express server setup
+│       ├── routes/        # API routes
+│       └── middleware/    # Express middleware
 ├── public/                # Dashboard UI
 ├── data/                  # Trade history storage
 └── dist/                  # Compiled JavaScript
@@ -166,6 +298,9 @@ kumabotv2/
 # Run in development mode with auto-reload
 npm run dev ETH-USD
 
+# Run API in development mode
+npm run dev:api
+
 # Run tests
 npm test
 
@@ -175,14 +310,6 @@ npm run lint
 # Type check
 npm run type-check
 ```
-
-## API (Coming Soon)
-
-Future versions will include a REST API for:
-- Creating/managing multiple bot instances
-- Real-time statistics and monitoring
-- Historical performance analysis
-- Risk management controls
 
 ## Safety Features
 

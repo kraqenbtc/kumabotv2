@@ -10,8 +10,10 @@
     "start:bera": "ts-node src/index.ts BERA-USD",
     "start:xrp": "ts-node src/index.ts XRP-USD",
     "start:all": "pm2 start ecosystem.config.js",
+    "start:api": "ts-node src/api/index.ts",
     "build": "tsc",
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
+    "dev:api": "ts-node-dev --respawn --transpile-only src/api/index.ts",
     "test": "jest",
     "legacy:eth": "node eth_grid.js",
     "legacy:btc": "node btc_grid.js",
@@ -20,6 +22,7 @@
   "dependencies": {
     "@kumabid/kuma-sdk": "^1.2.0",
     "axios": "^1.7.9",
+    "cors": "^2.8.5",
     "dotenv": "^16.5.0",
     "eth-crypto": "^2.6.0",
     "express": "^4.21.2",
@@ -27,6 +30,7 @@
     "ws": "^8.18.0"
   },
   "devDependencies": {
+    "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",
     "@types/node": "^20.10.0",
     "@types/uuid": "^9.0.7",
