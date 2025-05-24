@@ -59,6 +59,7 @@ const INITIAL_QUANTITY = 1.1;
 const BASE_INCREMENT = 0.4;
 const INCREMENT_STEP = 0.1;
 const INITIAL_SPREAD = 2;
+const SPREAD_INCREMENT = 0.5; // Her seviyede 0.5 dolar artacak
 const CLOSING_SPREAD = 2;
 const MIN_ORDER_INTERVAL = 500; // ms
 const MAX_POSITION = 30; // ETH
@@ -205,10 +206,11 @@ async function placeGridOrder(side, basePrice) {
   // Yeni emir miktarı = önceki miktar + bu seviyenin artışı
   const quantity = prevQuantity + currentIncrement;
   
-  const priceDiff = INITIAL_SPREAD + (state.gridLevel * 2);
+  // Her seviyede artan spread hesapla
+  const priceDiff = INITIAL_SPREAD + (state.gridLevel * SPREAD_INCREMENT);
   const price = side === 'buy' ? 
-    Math.round(basePrice - priceDiff) : 
-    Math.round(basePrice + priceDiff);
+    parseFloat((basePrice - priceDiff).toFixed(1)) : 
+    parseFloat((basePrice + priceDiff).toFixed(1));
 
   if (Math.abs(state.positionQty) + quantity > MAX_POSITION) {
     log('GRID', 'Max position size reached, skipping grid order');
@@ -219,7 +221,8 @@ async function placeGridOrder(side, basePrice) {
     gridLevel: state.gridLevel,
     prevQuantity,
     increment: currentIncrement,
-    newQuantity: quantity
+    newQuantity: quantity,
+    priceDiff
   });
 
   await placeOrder(side, quantity, price, 'grid');
@@ -239,7 +242,7 @@ async function placeClosingOrder() {
 
   const avgPrice = state.positionCost / Math.abs(state.positionQty);
   const side = state.positionQty > 0 ? 'sell' : 'buy';
-  const price = Math.round(avgPrice + (side === 'sell' ? CLOSING_SPREAD : -CLOSING_SPREAD));
+  const price = parseFloat((avgPrice + (side === 'sell' ? CLOSING_SPREAD : -CLOSING_SPREAD)).toFixed(1));
 
   if (state.closingOrderId) {
     await cancelOrder(state.closingOrderId);

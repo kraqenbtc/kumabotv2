@@ -59,6 +59,7 @@ const INITIAL_QUANTITY = 8;
 const BASE_INCREMENT = 1;
 const INCREMENT_STEP = 0.5;
 const INITIAL_SPREAD = 0.3;
+const SPREAD_INCREMENT = 0.05; // Her seviyede 0.05 dolar artacak
 const CLOSING_SPREAD = 0.3;
 const MIN_ORDER_INTERVAL = 500; // ms
 const MAX_POSITION = 30; // SOL
@@ -205,7 +206,8 @@ async function placeGridOrder(side, basePrice) {
   // Yeni emir miktarı = önceki miktar + bu seviyenin artışı
   const quantity = prevQuantity + currentIncrement;
   
-  const priceDiff = INITIAL_SPREAD + (state.gridLevel * 0.1); // SOL için daha küçük artışlar
+  // Her seviyede artan spread hesapla
+  const priceDiff = INITIAL_SPREAD + (state.gridLevel * SPREAD_INCREMENT);
   const price = side === 'buy' ? 
     parseFloat((basePrice - priceDiff).toFixed(2)) : 
     parseFloat((basePrice + priceDiff).toFixed(2));
@@ -219,7 +221,8 @@ async function placeGridOrder(side, basePrice) {
     gridLevel: state.gridLevel,
     prevQuantity,
     increment: currentIncrement,
-    newQuantity: quantity
+    newQuantity: quantity,
+    priceDiff
   });
 
   await placeOrder(side, quantity, price, 'grid');

@@ -59,6 +59,7 @@ const INITIAL_QUANTITY = 0.03;
 const BASE_INCREMENT = 0.01;
 const INCREMENT_STEP = 0.002;
 const INITIAL_SPREAD = 80;
+const SPREAD_INCREMENT = 10; // Her seviyede 10 dolar artacak
 const CLOSING_SPREAD = 80;
 const MIN_ORDER_INTERVAL = 500; // ms
 const MAX_POSITION = 0.5; // BTC
@@ -205,7 +206,8 @@ async function placeGridOrder(side, basePrice) {
   // Yeni emir miktarı = önceki miktar + bu seviyenin artışı
   const quantity = prevQuantity + currentIncrement;
   
-  const priceDiff = INITIAL_SPREAD + (state.gridLevel * 2);
+  // Her seviyede artan spread hesapla
+  const priceDiff = INITIAL_SPREAD + (state.gridLevel * SPREAD_INCREMENT);
   const price = side === 'buy' ? 
     Math.round(basePrice - priceDiff) : 
     Math.round(basePrice + priceDiff);
@@ -219,7 +221,8 @@ async function placeGridOrder(side, basePrice) {
     gridLevel: state.gridLevel,
     prevQuantity,
     increment: currentIncrement,
-    newQuantity: quantity
+    newQuantity: quantity,
+    priceDiff
   });
 
   await placeOrder(side, quantity, price, 'grid');
