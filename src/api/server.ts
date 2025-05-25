@@ -5,6 +5,7 @@ import { WebSocket, WebSocketServer } from 'ws';
 import { BotManager } from '../services/BotManager';
 import botRoutes from './routes/bots';
 import systemRoutes from './routes/system';
+import accountRoutes from './routes/account';
 import { errorHandler } from './middleware/errorHandler';
 import { logger } from './middleware/logger';
 
@@ -52,6 +53,7 @@ export class ApiServer {
   private setupRoutes(): void {
     // API routes
     this.app.use('/api/bots', botRoutes(this.botManager));
+    this.app.use('/api/account', accountRoutes());
     this.app.use('/api', systemRoutes());
 
     // Static files for dashboard

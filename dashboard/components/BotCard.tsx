@@ -1,137 +1,213 @@
 'use client'
 
-import { Play, Square, Settings, TrendingUp, TrendingDown, Activity } from 'lucide-react'
+import Image from 'next/image'
+import { Play, Square, Trash2, TrendingUp, TrendingDown, Activity } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
+interface Trade {
+  id: string;
+  side: 'buy' | 'sell';
+  price: number;
+  quantity: number;
+  timestamp: number;
+}
+
+interface BotState {
+  position?: {
+    quantity: number;
+    averagePrice: number;
+  };
+  stats?: {
+    totalPnL: number;
+    totalVolume: number;
+    totalTrades: number;
+  };
+  gridLevel?: number;
+  totalPnL?: number;
+  totalVolume?: number;
+  trades?: Trade[];
+}
+
+interface BotStats {
+  totalPnL: number;
+  totalVolume: number;
+  totalTrades: number;
+}
+
 interface BotCardProps {
-  bot: any
+  bot: {
+    botId: string
+    symbol: string
+    status: 'running' | 'stopped' | 'error'
+    exists: boolean
+    state?: BotState
+    stats?: BotStats
+  }
   onStart: () => void
   onStop: () => void
   onSelect: () => void
   isSelected: boolean
-  isStarting: boolean
-  isStopping: boolean
+  isStarting?: boolean
+  isStopping?: boolean
 }
 
-export function BotCard({
-  bot,
-  onStart,
-  onStop,
-  onSelect,
+const SYMBOL_LOGOS: Record<string, string> = {
+  'BTC-USD': 'https://exchange.kuma.bid/static/images/coins/BTC.png',
+  'ETH-USD': 'https://exchange.kuma.bid/static/images/coins/ETH.png',
+  'SOL-USD': 'https://exchange.kuma.bid/static/images/coins/SOL.svg',
+  'BERA-USD': 'https://exchange.kuma.bid/static/images/coins/BERA.svg',
+  'XRP-USD': 'https://exchange.kuma.bid/static/images/coins/XRP.png',
+}
+
+export function BotCard({ 
+  bot, 
+  onStart, 
+  onStop, 
+  onSelect, 
   isSelected,
   isStarting,
-  isStopping,
+  isStopping 
 }: BotCardProps) {
-  const isRunning = bot.status === 'running'
-  const pnl = parseFloat(bot.state?.totalPnL || 0)
-  const position = bot.state?.positionQty || 0
-  const lastPrice = bot.state?.lastPrice || 0
+  const handleAction = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (bot.status === 'running') {
+      onStop()
+    } else {
+      onStart()
+    }
+  }
 
+  const position = bot.state?.position || { quantity: 0, averagePrice: 0 }
+  const stats = bot.state?.stats || { totalPnL: 0, totalVolume: 0, totalTrades: 0 }
+  
   return (
     <div
-      className={cn(
-        'bg-gray-900/50 backdrop-blur-sm border rounded-lg p-6 transition-all cursor-pointer',
-        isSelected ? 'border-blue-500 shadow-lg shadow-blue-500/20' : 'border-gray-800 hover:border-gray-700',
-        !bot.exists && 'opacity-60'
-      )}
       onClick={onSelect}
+      className={cn(
+        "bg-gray-900/50 backdrop-blur-sm border rounded-lg p-4 sm:p-6 cursor-pointer transition-all",
+        isSelected ? "border-blue-500 shadow-lg shadow-blue-500/20" : "border-gray-800",
+        "hover:border-gray-700"
+      )}
     >
       {/* Header */}
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-start justify-between mb-4">
         <div className="flex items-center space-x-3">
-          <div className={cn(
-            'p-2 rounded-lg',
-            isRunning ? 'bg-green-500/10' : 'bg-gray-800'
-          )}>
-            <Activity className={cn(
-              'h-5 w-5',
-              isRunning ? 'text-green-500' : 'text-gray-500'
-            )} />
+          <div className="relative w-10 h-10 sm:w-12 sm:h-12">
+            <Image
+              src={SYMBOL_LOGOS[bot.symbol] || SYMBOL_LOGOS['BTC-USD']}
+              alt={bot.symbol}
+              fill
+              className="object-contain"
+              unoptimized
+            />
           </div>
           <div>
-            <h3 className="font-semibold text-lg">{bot.symbol}</h3>
-            <p className={cn(
-              'text-sm',
-              isRunning ? 'text-green-500' : 'text-gray-500'
-            )}>
-              {isRunning ? 'Running' : 'Stopped'}
-            </p>
+            <h3 className="font-semibold text-base sm:text-lg">{bot.symbol}</h3>
+            <p className="text-xs sm:text-sm text-gray-400">Bot ID: {bot.botId.slice(0, 8)}...</p>
           </div>
         </div>
+        
+        <div className={cn(
+          "px-2 py-1 rounded-full text-xs font-medium",
+          bot.status === 'running' ? "bg-green-500/20 text-green-500" :
+          bot.status === 'error' ? "bg-red-500/20 text-red-500" :
+          "bg-gray-500/20 text-gray-500"
+        )}>
+          {bot.status}
+        </div>
+      </div>
+
+      {/* Stats Grid */}
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 mb-4">
+        <div>
+          <p className="text-xs text-gray-400">P&L</p>
+          <p className={cn(
+            "font-semibold text-sm sm:text-base",
+            stats.totalPnL >= 0 ? "text-green-500" : "text-red-500"
+          )}>
+            ${stats.totalPnL.toFixed(2)}
+            {stats.totalPnL !== 0 && (
+              stats.totalPnL > 0 ? 
+                <TrendingUp className="inline h-3 w-3 sm:h-4 sm:w-4 ml-1" /> : 
+                <TrendingDown className="inline h-3 w-3 sm:h-4 sm:w-4 ml-1" />
+            )}
+          </p>
+        </div>
+        
+        <div>
+          <p className="text-xs text-gray-400">Position</p>
+          <p className="font-semibold text-sm sm:text-base">
+            {position.quantity.toFixed(6)}
+          </p>
+        </div>
+        
+        <div>
+          <p className="text-xs text-gray-400">Grid Level</p>
+          <p className="font-semibold text-sm sm:text-base">{bot.state?.gridLevel || 0}</p>
+        </div>
+        
+        <div>
+          <p className="text-xs text-gray-400">Trades</p>
+          <p className="font-semibold text-sm sm:text-base">{stats.totalTrades}</p>
+        </div>
+      </div>
+
+      {/* Volume Bar */}
+      <div className="mb-4">
+        <div className="flex justify-between text-xs text-gray-400 mb-1">
+          <span>Volume</span>
+          <span>${stats.totalVolume.toFixed(2)}</span>
+        </div>
+        <div className="h-1.5 sm:h-2 bg-gray-800 rounded-full overflow-hidden">
+          <div 
+            className="h-full bg-blue-500 transition-all duration-500"
+            style={{ width: `${Math.min((stats.totalVolume / 10000) * 100, 100)}%` }}
+          />
+        </div>
+      </div>
+
+      {/* Action Buttons */}
+      <div className="flex space-x-2">
+        <button
+          onClick={handleAction}
+          disabled={isStarting || isStopping}
+          className={cn(
+            "flex-1 py-2 px-3 sm:px-4 rounded-lg font-medium transition-colors flex items-center justify-center space-x-1 sm:space-x-2 text-sm",
+            bot.status === 'running' 
+              ? "bg-red-600 hover:bg-red-700 text-white" 
+              : "bg-blue-600 hover:bg-blue-700 text-white",
+            (isStarting || isStopping) && "opacity-50 cursor-not-allowed"
+          )}
+        >
+          {bot.status === 'running' ? (
+            <>
+              <Square className="h-3 w-3 sm:h-4 sm:w-4" />
+              <span>{isStopping ? 'Stopping...' : 'Stop'}</span>
+            </>
+          ) : (
+            <>
+              <Play className="h-3 w-3 sm:h-4 sm:w-4" />
+              <span>{isStarting ? 'Starting...' : 'Start'}</span>
+            </>
+          )}
+        </button>
         
         <button
           onClick={(e) => {
             e.stopPropagation()
-            isRunning ? onStop() : onStart()
+            // Handle delete
           }}
-          disabled={isStarting || isStopping || !bot.exists}
-          className={cn(
-            'p-2 rounded-lg transition-colors',
-            isRunning
-              ? 'bg-red-500/10 hover:bg-red-500/20 text-red-500'
-              : 'bg-green-500/10 hover:bg-green-500/20 text-green-500',
-            (isStarting || isStopping || !bot.exists) && 'opacity-50 cursor-not-allowed'
-          )}
+          className="p-2 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors"
         >
-          {isRunning ? (
-            <Square className="h-5 w-5" />
-          ) : (
-            <Play className="h-5 w-5" />
-          )}
+          <Trash2 className="h-3 w-3 sm:h-4 sm:w-4" />
         </button>
       </div>
 
-      {/* Stats */}
-      {bot.exists && bot.state && (
-        <div className="space-y-3">
-          <div className="flex justify-between items-center">
-            <span className="text-sm text-gray-400">P&L</span>
-            <div className="flex items-center space-x-1">
-              {pnl >= 0 ? (
-                <TrendingUp className="h-4 w-4 text-green-500" />
-              ) : (
-                <TrendingDown className="h-4 w-4 text-red-500" />
-              )}
-              <span className={cn(
-                'font-semibold',
-                pnl >= 0 ? 'text-green-500' : 'text-red-500'
-              )}>
-                ${pnl.toFixed(2)}
-              </span>
-            </div>
-          </div>
-          
-          <div className="flex justify-between items-center">
-            <span className="text-sm text-gray-400">Position</span>
-            <span className="font-mono">{position.toFixed(6)}</span>
-          </div>
-          
-          <div className="flex justify-between items-center">
-            <span className="text-sm text-gray-400">Last Price</span>
-            <span className="font-mono">${lastPrice.toFixed(2)}</span>
-          </div>
-          
-          <div className="flex justify-between items-center">
-            <span className="text-sm text-gray-400">Grid Level</span>
-            <span className="font-mono">{bot.state.gridLevel || 0}</span>
-          </div>
-        </div>
-      )}
-
-      {/* Create bot message */}
-      {!bot.exists && (
-        <div className="text-center py-4">
-          <p className="text-sm text-gray-500 mb-2">Bot not initialized</p>
-          <button
-            onClick={(e) => {
-              e.stopPropagation()
-              onStart()
-            }}
-            disabled={isStarting}
-            className="text-sm text-blue-500 hover:text-blue-400"
-          >
-            Click to create and start
-          </button>
+      {/* Live Indicator */}
+      {bot.status === 'running' && (
+        <div className="mt-3 sm:mt-4 flex items-center justify-center space-x-2 text-xs text-gray-400">
+          <Activity className="h-3 w-3 text-green-500 animate-pulse" />
+          <span>Live Trading</span>
         </div>
       )}
     </div>

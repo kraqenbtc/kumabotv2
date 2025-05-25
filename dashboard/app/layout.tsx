@@ -1,17 +1,21 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import { Providers } from "./providers";
 
-const inter = Inter({
-  subsets: ["latin"],
-  display: 'swap',
-});
+const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "KumaBot v2 Dashboard",
-  description: "Advanced Grid Trading Bot Dashboard",
+  title: "Kumbo - Grid Trading System",
+  description: "Advanced cryptocurrency grid trading bot for Kuma Exchange",
 };
+
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+}
 
 export default function RootLayout({
   children,
@@ -19,11 +23,9 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={inter.className}>
-      <body className="bg-gray-950 text-gray-100 antialiased">
-        <Providers>
-          {children}
-        </Providers>
+    <html lang="en">
+      <body className={inter.className}>
+        <Providers>{children}</Providers>
       </body>
     </html>
   );

@@ -15,13 +15,19 @@ import { TradeHistory } from '../services/TradeHistory';
 import { Config } from '../config';
 
 export class GridBot {
-  protected config: BotConfig;
-  protected state: BotState;
-  protected kumaClient: KumaClient;
+  private config: BotConfig;
+  private kumaConfig: Config;
+  private kumaClient: KumaClient;
+  private wsClient?: WebSocket;
+  private state: BotState;
+  private dashboardWss?: WebSocketServer;
+  private status: 'stopped' | 'running' | 'error' = 'stopped';
+  private startTime?: number;
+  private stopTime?: number;
+  private botId: string;
   protected tradeHistory: TradeHistory;
   protected wsOrderbook: WebSocket | null = null;
   protected wsPrivate: WebSocket | null = null;
-  protected dashboardWss: WebSocketServer | null = null;
 
   // Constants
   protected readonly MIN_ORDER_INTERVAL = 500; // ms
@@ -34,8 +40,13 @@ export class GridBot {
     dashboardWss?: WebSocketServer
   ) {
     this.config = config;
-    this.dashboardWss = dashboardWss || null;
+    this.kumaConfig = kumaConfig;
+    this.dashboardWss = dashboardWss;
     
+    // Generate bot ID if not provided
+    this.botId = config.botId || `${config.symbol}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    
+    // Initialize Kuma client
     this.kumaClient = new KumaClient({
       sandbox: kumaConfig.sandbox,
       walletPrivateKey: kumaConfig.walletPrivateKey,
@@ -48,41 +59,62 @@ export class GridBot {
     this.tradeHistory = new TradeHistory(config.symbol);
     
     // Initialize state
-    this.state = {
-      positionQty: 0,
-      positionCost: 0,
-      gridLevel: 0,
-      isLongPosition: true,
-      activeOrders: new Map(),
-      filledOrders: new Map(),
-      initialBuyOrderId: null,
-      initialSellOrderId: null,
-      closingOrderId: null,
-      isProcessing: false,
-      isResetting: false,
-      lastOrderTime: 0,
-      startTime: Date.now(),
-      totalPnL: 0,
-      totalVolume: 0,
-      lastPrice: 0,
-      trades: [],
+    this.state = this.initializeState();
+  }
+
+  private initializeState(): BotState {
+    return {
+      botId: this.botId,
+      symbol: this.config.symbol,
+      walletAddress: this.kumaConfig.walletAddress,
+      status: 'stopped',
       position: {
         quantity: 0,
         cost: 0,
-        avgPrice: 0
+        averagePrice: 0
       },
+      gridLevel: 0,
+      activeOrders: new Map(),
+      lastPrice: 0,
+      lastUpdateTime: Date.now(),
+      lastOrderTime: 0,
+      
+      // Order tracking
+      initialBuyOrderId: null,
+      initialSellOrderId: null,
+      closingOrderId: null,
+      filledOrders: new Map(),
+      
+      // Control flags
+      isProcessing: false,
+      isLongPosition: true,
+      
+      // Additional tracking
+      totalPnL: 0,
+      totalVolume: 0,
+      trades: [],
+      startTime: Date.now(),
+      
       stats: {
         totalTrades: 0,
         winningTrades: 0,
         totalVolume: 0,
         totalPnL: 0,
         fees: {
-          total: 0,
           maker: 0,
-          taker: 0
+          taker: 0,
+          total: 0
         }
       }
     };
+  }
+
+  public getBotId(): string {
+    return this.botId;
+  }
+
+  public getWalletAddress(): string {
+    return this.kumaConfig.walletAddress;
   }
 
   // Symbol-specific price formatting
@@ -188,20 +220,22 @@ export class GridBot {
   }
 
   // Position Management
-  protected updatePosition(side: 'buy' | 'sell', quantity: number, price: number): void {
+  private updatePosition(side: 'buy' | 'sell', quantity: number, price: number): void {
     if (side === 'buy') {
-      this.state.positionQty += quantity;
-      this.state.positionCost += quantity * price;
+      this.state.position.cost += quantity * price;
+      this.state.position.quantity += quantity;
     } else {
-      this.state.positionQty -= quantity;
-      this.state.positionCost -= quantity * price;
+      this.state.position.cost -= quantity * price;
+      this.state.position.quantity -= quantity;
     }
 
-    this.log('POSITION', 'Updated', {
-      quantity: this.state.positionQty,
-      avgPrice: this.state.positionQty !== 0 ? 
-        this.state.positionCost / Math.abs(this.state.positionQty) : 0
-    });
+    // Update average price
+    if (this.state.position.quantity !== 0) {
+      this.state.position.averagePrice = this.state.position.cost / this.state.position.quantity;
+    } else {
+      this.state.position.averagePrice = 0;
+      this.state.position.cost = 0;
+    }
   }
 
   // Grid Logic
@@ -259,7 +293,7 @@ export class GridBot {
       basePrice - priceDiff : 
       basePrice + priceDiff;
 
-    if (Math.abs(this.state.positionQty) + quantity > this.config.maxPosition) {
+    if (Math.abs(this.state.position.quantity) + quantity > this.config.maxPosition) {
       this.log('GRID', 'Max position size reached, skipping grid order');
       return;
     }
@@ -290,10 +324,10 @@ export class GridBot {
   }
 
   protected async placeClosingOrder(): Promise<void> {
-    if (this.state.positionQty === 0) return;
+    if (this.state.position.quantity === 0) return;
 
-    const avgPrice = this.state.positionCost / Math.abs(this.state.positionQty);
-    const side = this.state.positionQty > 0 ? 'sell' : 'buy';
+    const avgPrice = this.state.position.cost / Math.abs(this.state.position.quantity);
+    const side = this.state.position.quantity > 0 ? 'sell' : 'buy';
     const price = avgPrice + (side === 'sell' ? 
       this.config.closingSpread : -this.config.closingSpread);
 
@@ -303,7 +337,7 @@ export class GridBot {
 
     this.state.closingOrderId = await this.placeOrder(
       side,
-      Math.abs(this.state.positionQty),
+      Math.abs(this.state.position.quantity),
       price,
       'closing'
     );
@@ -359,32 +393,46 @@ export class GridBot {
         
         // Calculate trade PnL
         let tradePnL = 0;
-        const isClosing = (side === 'sell' && this.state.positionQty > 0) || 
-                         (side === 'buy' && this.state.positionQty < 0);
+        const isClosing = (side === 'sell' && this.state.position.quantity > 0) || 
+                         (side === 'buy' && this.state.position.quantity < 0);
         
         if (isClosing) {
-          const avgEntryPrice = this.state.positionCost / Math.abs(this.state.positionQty);
+          const avgEntryPrice = this.state.position.cost / Math.abs(this.state.position.quantity);
           tradePnL = side === 'sell' ? 
             (price - avgEntryPrice) * quantity :
             (avgEntryPrice - price) * quantity;
           this.state.totalPnL += tradePnL;
         }
 
-        // Update position and stats
+        // Update position first to get accurate before/after values
+        const positionBefore = this.state.position.quantity;
         this.updatePosition(side, quantity, price);
+        const positionAfter = this.state.position.quantity;
+        
         this.state.lastPrice = price;
         this.state.totalVolume += quantity * price;
         
         // Create trade record
         const trade: Trade = {
-          time: new Date().toISOString(),
+          id: `${this.botId}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          botId: this.botId,
+          symbol: this.config.symbol,
+          walletAddress: this.kumaConfig.walletAddress,
           side,
           price,
           quantity,
-          type: orderInfo.type,
+          cost: price * quantity,
           fee: isTaker ? -Math.abs(fee) : Math.abs(fee),
-          isTaker,
+          feeRate: isTaker ? this.TAKER_FEE : this.MAKER_FEE,
           pnl: isClosing ? tradePnL : null,
+          timestamp: Date.now(),
+          orderId,
+          gridLevel: this.state.gridLevel,
+          isTaker,
+          position: {
+            before: positionBefore,
+            after: positionAfter
+          },
           totalPnL: this.state.totalPnL
         };
         
@@ -464,8 +512,11 @@ export class GridBot {
     // Reset state
     this.state = {
       ...this.state,
-      positionQty: 0,
-      positionCost: 0,
+      position: {
+        quantity: 0,
+        cost: 0,
+        averagePrice: 0
+      },
       gridLevel: 0,
       isLongPosition: true,
       isProcessing: false,
@@ -523,7 +574,7 @@ export class GridBot {
       totalPnL: this.state.totalPnL.toFixed(2),
       totalVolume: this.state.totalVolume.toFixed(2),
       lastPrice: this.state.lastPrice,
-      positionQty: this.state.positionQty,
+      positionQty: this.state.position.quantity,
       gridLevel: this.state.gridLevel,
       activeOrders: Array.from(this.state.activeOrders.entries()).map(([id, order]) => ({
         id,
@@ -562,7 +613,7 @@ export class GridBot {
     this.log('BOT', 'Stopping bot...');
     
     // Close all positions
-    if (this.state.positionQty !== 0) {
+    if (this.state.position.quantity !== 0) {
       await this.placeClosingOrder();
     }
     
@@ -594,20 +645,20 @@ export class GridBot {
     return {
       ...this.state,
       position: {
-        quantity: this.state.positionQty,
-        cost: this.state.positionCost,
-        avgPrice: this.state.positionQty !== 0 ? 
-          this.state.positionCost / Math.abs(this.state.positionQty) : 0
+        quantity: this.state.position.quantity,
+        cost: this.state.position.cost,
+        averagePrice: this.state.position.quantity !== 0 ? 
+          this.state.position.cost / Math.abs(this.state.position.quantity) : 0
       },
       stats: {
         totalTrades: this.state.trades.length,
-        winningTrades: this.state.trades.filter(t => t.pnl && t.pnl > 0).length,
+        winningTrades: this.state.trades.filter(t => t.pnl !== null && t.pnl > 0).length,
         totalVolume: this.state.totalVolume,
         totalPnL: this.state.totalPnL,
         fees: {
-          total: this.state.trades.reduce((sum, t) => sum + (t.fee || 0), 0),
-          maker: this.state.trades.filter(t => !t.isTaker).reduce((sum, t) => sum + (t.fee || 0), 0),
-          taker: this.state.trades.filter(t => t.isTaker).reduce((sum, t) => sum + (t.fee || 0), 0)
+          total: this.state.trades.reduce((sum, t) => sum + Math.abs(t.fee), 0),
+          maker: this.state.trades.filter(t => !t.isTaker).reduce((sum, t) => sum + Math.abs(t.fee), 0),
+          taker: this.state.trades.filter(t => t.isTaker).reduce((sum, t) => sum + Math.abs(t.fee), 0)
         }
       }
     };
@@ -633,40 +684,16 @@ export class GridBot {
   public reset(): void {
     // Reset state while preserving connection info
     const startTime = this.state.startTime;
+    const botId = this.state.botId;
+    const symbol = this.state.symbol;
+    const walletAddress = this.state.walletAddress;
+    
     this.state = {
-      positionQty: 0,
-      positionCost: 0,
-      gridLevel: 0,
-      isLongPosition: true,
-      activeOrders: new Map(),
-      filledOrders: new Map(),
-      initialBuyOrderId: null,
-      initialSellOrderId: null,
-      closingOrderId: null,
-      isProcessing: false,
-      isResetting: false,
-      lastOrderTime: 0,
-      startTime: startTime,
-      totalPnL: 0,
-      totalVolume: 0,
-      lastPrice: 0,
-      trades: [],
-      position: {
-        quantity: 0,
-        cost: 0,
-        avgPrice: 0
-      },
-      stats: {
-        totalTrades: 0,
-        winningTrades: 0,
-        totalVolume: 0,
-        totalPnL: 0,
-        fees: {
-          total: 0,
-          maker: 0,
-          taker: 0
-        }
-      }
+      ...this.initializeState(),
+      startTime,
+      botId,
+      symbol,
+      walletAddress
     };
     
     // Clear trade history

@@ -1,70 +1,45 @@
 {
-  "name": "kumabotv2",
+  "name": "kumbo",
   "version": "2.0.0",
-  "description": "Advanced grid trading bot for Kuma exchange with TypeScript",
+  "description": "Kumbo - Advanced Grid Trading Bot for Kuma Exchange",
   "main": "dist/index.js",
   "scripts": {
-    "start:eth": "ts-node src/index.ts ETH-USD",
-    "start:btc": "ts-node src/index.ts BTC-USD",
-    "start:sol": "ts-node src/index.ts SOL-USD",
-    "start:bera": "ts-node src/index.ts BERA-USD",
-    "start:xrp": "ts-node src/index.ts XRP-USD",
-    "start:all": "pm2 start ecosystem.config.js",
-    "start:api": "ts-node src/api/index.ts",
+    "start": "node dist/index.js",
     "build": "tsc",
-    "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
-    "dev:api": "ts-node-dev --respawn --transpile-only src/api/index.ts",
-    "test": "jest",
-    "legacy:eth": "node eth_grid.js",
-    "legacy:btc": "node btc_grid.js",
-    "legacy:sol": "node sol_grid.js"
+    "dev": "ts-node src/index.ts",
+    "api": "ts-node src/api/index.ts",
+    "api:dev": "nodemon --exec ts-node src/api/index.ts",
+    "bot": "ts-node src/index.ts",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit"
   },
+  "keywords": [
+    "grid-trading",
+    "crypto",
+    "trading-bot",
+    "kuma-exchange",
+    "kumbo"
+  ],
+  "author": "",
+  "license": "MIT",
   "dependencies": {
-    "@kumabid/kuma-sdk": "^1.2.0",
-    "axios": "^1.7.9",
+    "@kumabid/kuma-sdk": "^0.2.16",
+    "axios": "^1.6.2",
+    "chalk": "^4.1.2",
     "cors": "^2.8.5",
-    "dotenv": "^16.5.0",
-    "eth-crypto": "^2.6.0",
-    "express": "^4.21.2",
-    "uuid": "^11.0.5",
-    "ws": "^8.18.0"
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "uuid": "^9.0.1",
+    "ws": "^8.14.2"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",
-    "@types/node": "^20.10.0",
+    "@types/node": "^20.10.4",
     "@types/uuid": "^9.0.7",
     "@types/ws": "^8.5.10",
-    "@typescript-eslint/eslint-plugin": "^6.13.1",
-    "@typescript-eslint/parser": "^6.13.1",
-    "eslint": "^8.54.0",
-    "jest": "^29.7.0",
-    "ts-jest": "^29.1.1",
+    "nodemon": "^3.0.2",
     "ts-node": "^10.9.1",
-    "ts-node-dev": "^2.0.0",
-    "typescript": "^5.3.2"
-  },
-  "engines": {
-    "node": ">=16.0.0"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/kraqenbtc/kumabotv2.git"
-  },
-  "keywords": [
-    "trading",
-    "bot",
-    "grid",
-    "ethereum",
-    "bitcoin",
-    "crypto",
-    "kuma",
-    "typescript"
-  ],
-  "author": "kraqenbtc",
-  "license": "MIT",
-  "bugs": {
-    "url": "https://github.com/kraqenbtc/kumabotv2/issues"
-  },
-  "homepage": "https://github.com/kraqenbtc/kumabotv2#readme"
+    "typescript": "^5.3.3"
+  }
 }

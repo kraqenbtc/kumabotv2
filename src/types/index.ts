@@ -46,7 +46,7 @@ export const SYMBOL_CONFIGS: Record<string, SymbolConfig> = {
 };
 
 export interface BotConfig {
-  id?: string;
+  botId?: string;
   userId?: string;
   symbol: keyof typeof SYMBOL_CONFIGS;
   initialQuantity: number;
@@ -65,50 +65,49 @@ export interface BotConfig {
 }
 
 export interface BotState {
-  // Position tracking
-  positionQty: number;
-  positionCost: number;
-  gridLevel: number;
-  isLongPosition: boolean;
-
-  // Order tracking
-  activeOrders: Map<string, OrderInfo>;
-  filledOrders: Map<string, OrderInfo>;
-  initialBuyOrderId: string | null;
-  initialSellOrderId: string | null;
-  closingOrderId: string | null;
-
-  // Control flags
-  isProcessing: boolean;
-  isResetting: boolean;
-  lastOrderTime: number;
-
-  // Statistics
-  startTime: number;
-  totalPnL: number;
-  totalVolume: number;
-  lastPrice: number;
-  trades: Trade[];
-
-  // Computed position info
+  botId: string;
+  symbol: string;
+  walletAddress: string;
+  status: 'stopped' | 'running' | 'error';
   position: {
     quantity: number;
     cost: number;
-    avgPrice: number;
+    averagePrice: number;
   };
-
-  // Computed statistics
+  gridLevel: number;
+  activeOrders: Map<string, OrderInfo>;
+  lastPrice: number;
+  lastUpdateTime: number;
+  lastOrderTime: number;
+  
+  // Order tracking
+  initialBuyOrderId: string | null;
+  initialSellOrderId: string | null;
+  closingOrderId: string | null;
+  filledOrders: Map<string, OrderInfo>;
+  
+  // Control flags
+  isProcessing: boolean;
+  isLongPosition: boolean;
+  
+  // Additional tracking
+  totalPnL: number;
+  totalVolume: number;
+  trades: Trade[];
+  startTime: number;
+  
   stats: {
     totalTrades: number;
     winningTrades: number;
     totalVolume: number;
     totalPnL: number;
     fees: {
-      total: number;
       maker: number;
       taker: number;
+      total: number;
     };
   };
+  error?: string;
 }
 
 export interface OrderInfo {
@@ -121,15 +120,27 @@ export interface OrderInfo {
 }
 
 export interface Trade {
-  time: string;
+  id: string;
+  botId: string;
+  symbol: string;
+  walletAddress: string;
   side: 'buy' | 'sell';
   price: number;
   quantity: number;
-  type: string;
+  cost: number;
   fee: number;
+  feeRate: number;
+  pnl: number | null;  // Can be null for non-closing trades
+  timestamp: number;
+  orderId: string;
+  fillId?: string;
+  gridLevel: number;
   isTaker: boolean;
-  pnl: number | null;
-  totalPnL: number;
+  position: {
+    before: number;
+    after: number;
+  };
+  totalPnL?: number;  // Running total P&L at time of trade
 }
 
 export interface DashboardStats {

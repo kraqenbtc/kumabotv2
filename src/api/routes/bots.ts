@@ -1,20 +1,22 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { BotManager } from '../../services/BotManager';
 import { createApiError } from '../middleware/errorHandler';
-import { BotConfig } from '../../types';
+import { BotConfig, SYMBOL_CONFIGS } from '../../types';
+import { KumaClient } from '../../services/KumaClient';
+import { getConfigBySymbol, validateConfig } from '../../config';
 
 export default function botRoutes(botManager: BotManager): Router {
   const router = Router();
 
-  // Get all bots status
+  // Get all bots
   router.get('/', (req: Request, res: Response) => {
-    const bots = botManager.getAllBots();
-    const response = Object.entries(bots).map(([symbol, bot]) => ({
-      symbol,
+    const allBots = botManager.getAllBots();
+    const response = Array.from(allBots.entries()).map(([botId, bot]) => ({
+      botId,
+      symbol: bot.getConfig().symbol,
       status: bot.getStatus(),
       state: bot.getState(),
-      uptime: bot.getUptime(),
-      config: bot.getConfig()
+      uptime: bot.getUptime()
     }));
     
     res.json({
@@ -23,79 +25,146 @@ export default function botRoutes(botManager: BotManager): Router {
     });
   });
 
-  // Get specific bot status
-  router.get('/:symbol', (req: Request, res: Response, next: NextFunction) => {
+  // Get bots by symbol
+  router.get('/symbol/:symbol', (req: Request, res: Response, next: NextFunction) => {
     const { symbol } = req.params;
-    const bot = botManager.getBot(symbol);
+    const bots = botManager.getBotsBySymbol(symbol);
     
-    if (!bot) {
-      return next(createApiError(`Bot ${symbol} not found`, 404));
-    }
+    const response = bots.map(bot => ({
+      botId: bot.getBotId(),
+      symbol: bot.getConfig().symbol,
+      status: bot.getStatus(),
+      state: bot.getState(),
+      uptime: bot.getUptime()
+    }));
     
     res.json({
       symbol,
+      count: response.length,
+      bots: response
+    });
+  });
+
+  // Get specific bot by ID
+  router.get('/:botId', (req: Request, res: Response, next: NextFunction) => {
+    const { botId } = req.params;
+    const bot = botManager.getBot(botId);
+    
+    if (!bot) {
+      return next(createApiError(`Bot ${botId} not found`, 404));
+    }
+    
+    const state = bot.getState();
+    res.json({
+      botId,
+      symbol: bot.getConfig().symbol,
       status: bot.getStatus(),
-      state: bot.getState(),
+      state: state,
       uptime: bot.getUptime(),
       config: bot.getConfig(),
       statistics: {
-        totalTrades: bot.getState().stats.totalTrades,
-        winningTrades: bot.getState().stats.winningTrades,
-        totalVolume: bot.getState().stats.totalVolume,
-        totalPnL: bot.getState().stats.totalPnL,
-        fees: bot.getState().stats.fees
+        totalTrades: state.stats.totalTrades,
+        winningTrades: state.stats.winningTrades,
+        totalVolume: state.stats.totalVolume,
+        totalPnL: state.stats.totalPnL,
+        fees: state.stats.fees
       }
     });
   });
 
-  // Start a bot
-  router.post('/:symbol/start', async (req: Request, res: Response, next: NextFunction) => {
-    const { symbol } = req.params;
+  // Create and start a new bot
+  router.post('/create', async (req: Request, res: Response, next: NextFunction) => {
+    const { symbol, config: customConfig } = req.body;
+    
+    if (!symbol || !SYMBOL_CONFIGS[symbol as keyof typeof SYMBOL_CONFIGS]) {
+      return next(createApiError('Invalid symbol', 400));
+    }
     
     try {
-      let bot = botManager.getBot(symbol);
+      // Get default config and merge with custom config
+      const defaultConfig = getDefaultBotConfig(symbol as keyof typeof SYMBOL_CONFIGS);
+      const botConfig = { ...defaultConfig, ...customConfig, enabled: true };
+      
+      // Create bot
+      const botId = await botManager.createBot(botConfig);
+      const bot = botManager.getBot(botId);
       
       if (!bot) {
-        // Try to create and start the bot
-        const success = await botManager.startBot(symbol);
-        if (!success) {
-          return next(createApiError(`Failed to start bot for ${symbol}`, 500));
-        }
-        bot = botManager.getBot(symbol);
-      } else if (bot.getStatus() === 'running') {
-        return next(createApiError(`Bot ${symbol} is already running`, 400));
-      } else {
-        // Start existing bot
+        return next(createApiError('Failed to create bot', 500));
+      }
+      
+      // Start bot if requested
+      if (req.body.autoStart !== false) {
         await bot.start();
       }
       
-      res.json({
-        message: `Bot ${symbol} started successfully`,
-        status: bot?.getStatus(),
-        state: bot?.getState()
+      res.json({ 
+        message: 'Bot created successfully',
+        botId,
+        symbol,
+        status: bot.getStatus(),
+        config: botConfig
+      });
+    } catch (error: any) {
+      next(createApiError(`Failed to create bot: ${error.message}`, 500));
+    }
+  });
+
+  // Start a bot by ID
+  router.post('/:botId/start', async (req: Request, res: Response, next: NextFunction) => {
+    const { botId } = req.params;
+    
+    try {
+      const bot = botManager.getBot(botId);
+      
+      if (!bot) {
+        return next(createApiError(`Bot ${botId} not found`, 404));
+      }
+      
+      if (bot.getStatus() === 'running') {
+        return next(createApiError(`Bot ${botId} is already running`, 400));
+      }
+      
+      const success = await botManager.startBot(botId);
+      
+      if (!success) {
+        return next(createApiError(`Failed to start bot ${botId}`, 500));
+      }
+      
+      res.json({ 
+        message: `Bot ${botId} started successfully`,
+        botId,
+        status: bot.getStatus()
       });
     } catch (error: any) {
       next(createApiError(`Failed to start bot: ${error.message}`, 500));
     }
   });
 
-  // Stop a bot
-  router.post('/:symbol/stop', async (req: Request, res: Response, next: NextFunction) => {
-    const { symbol } = req.params;
-    const bot = botManager.getBot(symbol);
-    
-    if (!bot) {
-      return next(createApiError(`Bot ${symbol} not found`, 404));
-    }
-    
-    if (bot.getStatus() !== 'running') {
-      return next(createApiError(`Bot ${symbol} is not running`, 400));
-    }
+  // Stop a bot by ID
+  router.post('/:botId/stop', async (req: Request, res: Response, next: NextFunction) => {
+    const { botId } = req.params;
     
     try {
-      await bot.stop();
+      const bot = botManager.getBot(botId);
+      
+      if (!bot) {
+        return next(createApiError(`Bot ${botId} not found`, 404));
+      }
+      
+      if (bot.getStatus() !== 'running') {
+        return next(createApiError(`Bot ${botId} is not running`, 400));
+      }
+      
+      const success = await botManager.stopBot(botId);
+      
+      if (!success) {
+        return next(createApiError(`Failed to stop bot ${botId}`, 500));
+      }
+      
       res.json({
-        message: `Bot ${symbol} stopped successfully`,
+        message: `Bot ${botId} stopped successfully`,
+        botId,
         status: bot.getStatus()
       });
     } catch (error: any) {
@@ -103,72 +172,106 @@ export default function botRoutes(botManager: BotManager): Router {
     }
   });
 
-  // Update bot configuration
-  router.put('/:symbol/config', async (req: Request, res: Response, next: NextFunction) => {
-    const { symbol } = req.params;
-    const config: Partial<BotConfig> = req.body;
-    
-    const bot = botManager.getBot(symbol);
-    if (!bot) {
-      return next(createApiError(`Bot ${symbol} not found`, 404));
-    }
-    
-    if (bot.getStatus() === 'running') {
-      return next(createApiError(`Cannot update config while bot is running`, 400));
-    }
+  // Delete a bot by ID
+  router.delete('/:botId', async (req: Request, res: Response, next: NextFunction) => {
+    const { botId } = req.params;
     
     try {
-      // Validate config
-      const validFields = [
+      const success = await botManager.removeBot(botId);
+      
+      if (!success) {
+        return next(createApiError(`Failed to remove bot ${botId}`, 404));
+      }
+      
+      res.json({
+        message: `Bot ${botId} removed successfully`
+      });
+    } catch (error: any) {
+      next(createApiError(`Failed to remove bot: ${error.message}`, 500));
+    }
+  });
+
+  // Get bot configuration
+  router.get('/:botId/config', (req: Request, res: Response, next: NextFunction) => {
+    const { botId } = req.params;
+    const bot = botManager.getBot(botId);
+    
+    if (!bot) {
+      return next(createApiError(`Bot ${botId} not found`, 404));
+    }
+    
+    res.json({
+      botId,
+      config: bot.getConfig()
+    });
+  });
+
+  // Update bot configuration
+  router.put('/:botId/config', (req: Request, res: Response, next: NextFunction) => {
+    const { botId } = req.params;
+    const updates = req.body;
+    
+    try {
+      const bot = botManager.getBot(botId);
+      
+      if (!bot) {
+        return next(createApiError(`Bot ${botId} not found`, 404));
+      }
+      
+      // Validate new configuration
+      const allowedFields = [
         'initialQuantity', 'baseIncrement', 'incrementStep',
         'initialSpread', 'spreadIncrement', 'closingSpread',
         'maxPosition', 'stopLoss', 'takeProfit', 'maxGridLevel'
       ];
       
-      const invalidFields = Object.keys(config).filter(key => !validFields.includes(key));
-      if (invalidFields.length > 0) {
-        return next(createApiError(`Invalid configuration fields: ${invalidFields.join(', ')}`, 400));
+      for (const key of Object.keys(updates)) {
+        if (!allowedFields.includes(key)) {
+          return next(createApiError(`Invalid configuration field: ${key}`, 400));
+        }
       }
       
-      // Update bot config
+      // Apply new configuration
       const currentConfig = bot.getConfig();
-      const newConfig = { ...currentConfig, ...config };
+      const newConfig = { ...currentConfig, ...updates };
       bot.updateConfig(newConfig);
       
       res.json({
-        message: `Bot ${symbol} configuration updated`,
+        message: 'Configuration updated successfully',
+        botId,
         config: newConfig
       });
     } catch (error: any) {
-      next(createApiError(`Failed to update config: ${error.message}`, 500));
+      next(createApiError(`Failed to update bot config: ${error.message}`, 500));
     }
   });
 
   // Get bot orders
-  router.get('/:symbol/orders', (req: Request, res: Response, next: NextFunction) => {
-    const { symbol } = req.params;
-    const bot = botManager.getBot(symbol);
+  router.get('/:botId/orders', (req: Request, res: Response, next: NextFunction) => {
+    const { botId } = req.params;
+    const bot = botManager.getBot(botId);
     
     if (!bot) {
-      return next(createApiError(`Bot ${symbol} not found`, 404));
+      return next(createApiError(`Bot ${botId} not found`, 404));
     }
     
     const state = bot.getState();
     res.json({
-      symbol,
+      botId,
+      symbol: bot.getConfig().symbol,
       activeOrders: Array.from(state.activeOrders.values()),
       count: state.activeOrders.size
     });
   });
 
   // Get bot trades
-  router.get('/:symbol/trades', (req: Request, res: Response, next: NextFunction) => {
-    const { symbol } = req.params;
+  router.get('/:botId/trades', (req: Request, res: Response, next: NextFunction) => {
+    const { botId } = req.params;
     const { limit = 50, offset = 0 } = req.query;
     
-    const bot = botManager.getBot(symbol);
+    const bot = botManager.getBot(botId);
     if (!bot) {
-      return next(createApiError(`Bot ${symbol} not found`, 404));
+      return next(createApiError(`Bot ${botId} not found`, 404));
     }
     
     const trades = bot.getTrades();
@@ -176,7 +279,8 @@ export default function botRoutes(botManager: BotManager): Router {
     const offsetNum = parseInt(offset as string);
     
     res.json({
-      symbol,
+      botId,
+      symbol: bot.getConfig().symbol,
       total: trades.length,
       trades: trades.slice(offsetNum, offsetNum + limitNum),
       limit: limitNum,
@@ -185,66 +289,105 @@ export default function botRoutes(botManager: BotManager): Router {
   });
 
   // Get bot statistics
-  router.get('/:symbol/stats', (req: Request, res: Response, next: NextFunction) => {
-    const { symbol } = req.params;
-    const bot = botManager.getBot(symbol);
+  router.get('/:botId/stats', (req: Request, res: Response, next: NextFunction) => {
+    const { botId } = req.params;
+    const stats = botManager.getBotStats(botId);
     
-    if (!bot) {
-      return next(createApiError(`Bot ${symbol} not found`, 404));
+    if (!stats) {
+      return next(createApiError(`Bot ${botId} not found`, 404));
     }
     
-    const state = bot.getState();
-    const stats = state.stats;
-    
-    // Calculate additional statistics
-    const winRate = stats.totalTrades > 0 
-      ? (stats.winningTrades / stats.totalTrades * 100).toFixed(2) 
-      : '0.00';
-    
-    const avgTradeSize = stats.totalTrades > 0
-      ? (stats.totalVolume / stats.totalTrades).toFixed(2)
-      : '0.00';
-    
-    const netPnL = stats.totalPnL - stats.fees.total;
-    
-    res.json({
-      symbol,
-      statistics: {
-        ...stats,
-        winRate: parseFloat(winRate),
-        avgTradeSize: parseFloat(avgTradeSize),
-        netPnL,
-        currentPosition: state.position.quantity,
-        currentCost: state.position.cost,
-        gridLevel: state.gridLevel,
-        uptime: bot.getUptime()
-      }
-    });
+    res.json(stats);
   });
 
-  // Reset bot (clear state and trades)
-  router.post('/:symbol/reset', async (req: Request, res: Response, next: NextFunction) => {
+  // Get default config for a symbol (for UI)
+  router.get('/config/:symbol', (req: Request, res: Response, next: NextFunction) => {
     const { symbol } = req.params;
-    const bot = botManager.getBot(symbol);
-    
-    if (!bot) {
-      return next(createApiError(`Bot ${symbol} not found`, 404));
-    }
-    
-    if (bot.getStatus() === 'running') {
-      return next(createApiError(`Cannot reset bot while running`, 400));
-    }
     
     try {
-      bot.reset();
+      const config = getConfigBySymbol(symbol as any);
+      const botConfig = getDefaultBotConfig(symbol as any);
+      
       res.json({
-        message: `Bot ${symbol} reset successfully`,
-        state: bot.getState()
+        symbol,
+        config: botConfig,
+        apiConfigured: !!config.apiKey
       });
     } catch (error: any) {
-      next(createApiError(`Failed to reset bot: ${error.message}`, 500));
+      next(createApiError(`Failed to get bot config: ${error.message}`, 500));
     }
   });
 
   return router;
+}
+
+// Helper function to get default bot configuration
+function getDefaultBotConfig(symbol: keyof typeof SYMBOL_CONFIGS): Omit<BotConfig, 'enabled'> {
+  const defaults: Record<keyof typeof SYMBOL_CONFIGS, Omit<BotConfig, 'symbol' | 'enabled'>> = {
+    'BTC-USD': {
+      initialQuantity: 0.03,
+      baseIncrement: 0.005,
+      incrementStep: 0.002,
+      initialSpread: 80,
+      spreadIncrement: 10,
+      closingSpread: 50,
+      maxPosition: 0.5,
+      stopLoss: 0.05,
+      takeProfit: 0.05,
+      maxGridLevel: 10
+    },
+    'ETH-USD': {
+      initialQuantity: 1.1,
+      baseIncrement: 0.3,
+      incrementStep: 0.05,
+      initialSpread: 2,
+      spreadIncrement: 0.5,
+      closingSpread: 1,
+      maxPosition: 30,
+      stopLoss: 0.05,
+      takeProfit: 0.05,
+      maxGridLevel: 10
+    },
+    'SOL-USD': {
+      initialQuantity: 8,
+      baseIncrement: 1,
+      incrementStep: 0.5,
+      initialSpread: 0.3,
+      spreadIncrement: 0.05,
+      closingSpread: 0.2,
+      maxPosition: 100,
+      stopLoss: 0.05,
+      takeProfit: 0.05,
+      maxGridLevel: 10
+    },
+    'BERA-USD': {
+      initialQuantity: 100,
+      baseIncrement: 10,
+      incrementStep: 5,
+      initialSpread: 0.01,
+      spreadIncrement: 0.002,
+      closingSpread: 0.005,
+      maxPosition: 10000,
+      stopLoss: 0.05,
+      takeProfit: 0.05,
+      maxGridLevel: 10
+    },
+    'XRP-USD': {
+      initialQuantity: 200,
+      baseIncrement: 20,
+      incrementStep: 10,
+      initialSpread: 0.001,
+      spreadIncrement: 0.0002,
+      closingSpread: 0.0005,
+      maxPosition: 20000,
+      stopLoss: 0.05,
+      takeProfit: 0.05,
+      maxGridLevel: 10
+    }
+  };
+
+  return {
+    symbol,
+    ...defaults[symbol]
+  };
 } 
