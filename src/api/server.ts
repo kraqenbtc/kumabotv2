@@ -53,7 +53,7 @@ export class ApiServer {
   private setupRoutes(): void {
     // API routes
     this.app.use('/api/bots', botRoutes(this.botManager));
-    this.app.use('/api/account', accountRoutes());
+    this.app.use('/api/account', accountRoutes(this.botManager));
     this.app.use('/api', systemRoutes());
 
     // Static files for dashboard

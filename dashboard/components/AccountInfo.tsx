@@ -29,6 +29,7 @@ export function AccountInfo() {
     queryKey: ['account'],
     queryFn: async () => {
       const response = await axios.get(`${API_BASE_URL}/api/account`)
+      console.log('Account data received:', response.data);  // Debug log
       return response.data
     },
     refetchInterval: 30000, // Refresh every 30 seconds
@@ -62,6 +63,7 @@ export function AccountInfo() {
 
   const balances = accountData?.balances || []
   const totalUSDValue = accountData?.totalUSDValue || 0
+  const walletInfo = accountData?.wallet
 
   return (
     <div className="bg-gray-900/50 backdrop-blur-sm border border-gray-800 rounded-lg p-4 sm:p-6 mb-6 sm:mb-8">
@@ -71,47 +73,81 @@ export function AccountInfo() {
           <h2 className="text-lg sm:text-xl font-semibold">Account Overview</h2>
         </div>
         <div className="text-right">
-          <p className="text-xs sm:text-sm text-gray-400">Total Value</p>
+          <p className="text-xs sm:text-sm text-gray-400">Total Equity</p>
           <p className="text-lg sm:text-2xl font-bold text-green-500">
             ${totalUSDValue.toFixed(2)}
           </p>
         </div>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4">
-        {balances.map((balance: Balance) => (
-          <div
-            key={balance.asset}
-            className="bg-gray-800/50 rounded-lg p-3 sm:p-4 border border-gray-700 hover:border-gray-600 transition-colors"
-          >
-            <div className="flex items-center space-x-2 mb-2">
-              <div className="relative w-6 h-6 sm:w-8 sm:h-8">
-                <Image
-                  src={SYMBOL_LOGOS[balance.asset] || SYMBOL_LOGOS['USD']}
-                  alt={balance.asset}
-                  fill
-                  className="object-contain"
-                  unoptimized
-                />
-              </div>
-              <span className="font-medium text-sm sm:text-base">{balance.asset}</span>
-            </div>
-            <div className="space-y-1">
-              <div>
-                <p className="text-xs text-gray-400">Available</p>
-                <p className="font-medium text-sm">{parseFloat(balance.free).toFixed(6)}</p>
-              </div>
-              {parseFloat(balance.locked) > 0 && (
-                <div>
-                  <p className="text-xs text-gray-400">Locked</p>
-                  <p className="font-medium text-sm text-yellow-500">
-                    {parseFloat(balance.locked).toFixed(6)}
-                  </p>
-                </div>
-              )}
-            </div>
+      {/* Wallet info cards */}
+      {walletInfo && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+          <div className="bg-gray-800/50 rounded-lg p-3">
+            <p className="text-xs text-gray-400">Free Collateral</p>
+            <p className="font-medium">${walletInfo.freeCollateral.toFixed(2)}</p>
           </div>
-        ))}
+          <div className="bg-gray-800/50 rounded-lg p-3">
+            <p className="text-xs text-gray-400">Buying Power</p>
+            <p className="font-medium">${walletInfo.buyingPower.toFixed(2)}</p>
+          </div>
+          <div className="bg-gray-800/50 rounded-lg p-3">
+            <p className="text-xs text-gray-400">Leverage</p>
+            <p className="font-medium">{walletInfo.leverage.toFixed(1)}x</p>
+          </div>
+          <div className="bg-gray-800/50 rounded-lg p-3">
+            <p className="text-xs text-gray-400">Unrealized P&L</p>
+            <p className={cn(
+              "font-medium",
+              walletInfo.unrealizedPnL >= 0 ? "text-green-500" : "text-red-500"
+            )}>
+              ${walletInfo.unrealizedPnL.toFixed(2)}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Asset balances */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4">
+        {balances.length === 0 ? (
+          <div className="col-span-full text-center text-gray-400 py-8">
+            No assets found
+          </div>
+        ) : (
+          balances.map((balance: Balance) => (
+            <div
+              key={balance.asset}
+              className="bg-gray-800/50 rounded-lg p-3 sm:p-4 border border-gray-700 hover:border-gray-600 transition-colors"
+            >
+              <div className="flex items-center space-x-2 mb-2">
+                <div className="relative w-6 h-6 sm:w-8 sm:h-8">
+                  <Image
+                    src={SYMBOL_LOGOS[balance.asset] || SYMBOL_LOGOS['USD']}
+                    alt={balance.asset}
+                    fill
+                    className="object-contain"
+                    unoptimized
+                  />
+                </div>
+                <span className="font-medium text-sm sm:text-base">{balance.asset}</span>
+              </div>
+              <div className="space-y-1">
+                <div>
+                  <p className="text-xs text-gray-400">Available</p>
+                  <p className="font-medium text-sm">{parseFloat(balance.free).toFixed(6)}</p>
+                </div>
+                {parseFloat(balance.locked) > 0 && (
+                  <div>
+                    <p className="text-xs text-gray-400">Locked</p>
+                    <p className="font-medium text-sm text-yellow-500">
+                      {parseFloat(balance.locked).toFixed(6)}
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+          ))
+        )}
       </div>
 
       <div className="mt-4 sm:mt-6 pt-4 sm:pt-6 border-t border-gray-800">
