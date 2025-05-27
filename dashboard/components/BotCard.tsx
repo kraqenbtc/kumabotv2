@@ -1,213 +1,238 @@
 'use client'
 
-import Image from 'next/image'
-import { Play, Square, Trash2, TrendingUp, TrendingDown, Activity } from 'lucide-react'
+import { useState } from 'react'
+import { Play, Square, TrendingUp, TrendingDown, Activity, Settings, Loader2, AlertCircle } from 'lucide-react'
 import { cn } from '@/lib/utils'
-
-interface Trade {
-  id: string;
-  side: 'buy' | 'sell';
-  price: number;
-  quantity: number;
-  timestamp: number;
-}
-
-interface BotState {
-  position?: {
-    quantity: number;
-    averagePrice: number;
-  };
-  stats?: {
-    totalPnL: number;
-    totalVolume: number;
-    totalTrades: number;
-  };
-  gridLevel?: number;
-  totalPnL?: number;
-  totalVolume?: number;
-  trades?: Trade[];
-}
-
-interface BotStats {
-  totalPnL: number;
-  totalVolume: number;
-  totalTrades: number;
-}
+import Image from 'next/image'
 
 interface BotCardProps {
   bot: {
     botId: string
     symbol: string
     status: 'running' | 'stopped' | 'error'
-    exists: boolean
-    state?: BotState
-    stats?: BotStats
+    config?: {
+      gridLevels: number
+      gridSpacing: number
+      amountPerGrid: number
+      upperPrice: number
+      lowerPrice: number
+    }
+    state?: {
+      position?: {
+        quantity: number
+        averagePrice: number
+      }
+      stats?: {
+        totalPnL: number
+        totalVolume: number
+        totalTrades: number
+      }
+      gridLevel?: number
+    }
+    exists?: boolean
+    stats?: {
+      totalPnL: number
+      totalVolume: number
+      totalTrades: number
+    }
   }
   onStart: () => void
   onStop: () => void
   onSelect: () => void
-  isSelected: boolean
+  isSelected?: boolean
   isStarting?: boolean
   isStopping?: boolean
-}
-
-const SYMBOL_LOGOS: Record<string, string> = {
-  'BTC-USD': 'https://exchange.kuma.bid/static/images/coins/BTC.png',
-  'ETH-USD': 'https://exchange.kuma.bid/static/images/coins/ETH.png',
-  'SOL-USD': 'https://exchange.kuma.bid/static/images/coins/SOL.svg',
-  'BERA-USD': 'https://exchange.kuma.bid/static/images/coins/BERA.svg',
-  'XRP-USD': 'https://exchange.kuma.bid/static/images/coins/XRP.png',
 }
 
 export function BotCard({ 
   bot, 
   onStart, 
   onStop, 
-  onSelect, 
+  onSelect,
   isSelected,
   isStarting,
   isStopping 
 }: BotCardProps) {
-  const handleAction = (e: React.MouseEvent) => {
-    e.stopPropagation()
-    if (bot.status === 'running') {
-      onStop()
-    } else {
-      onStart()
-    }
-  }
-
-  const position = bot.state?.position || { quantity: 0, averagePrice: 0 }
-  const stats = bot.state?.stats || { totalPnL: 0, totalVolume: 0, totalTrades: 0 }
+  const [imageError, setImageError] = useState(false)
+  const isRunning = bot.status === 'running'
+  const hasError = bot.status === 'error'
+  const stats = bot.state?.stats || bot.stats || { totalPnL: 0, totalVolume: 0, totalTrades: 0 }
+  const position = bot.state?.position
   
+  const coinSymbol = bot.symbol.split('-')[0].toLowerCase()
+  const coinImageUrl = `/${coinSymbol}.png`
+
   return (
     <div
-      onClick={onSelect}
       className={cn(
-        "bg-gray-900/50 backdrop-blur-sm border rounded-lg p-4 sm:p-6 cursor-pointer transition-all",
-        isSelected ? "border-blue-500 shadow-lg shadow-blue-500/20" : "border-gray-800",
-        "hover:border-gray-700"
+        "card p-4 card-hover relative overflow-hidden",
+        isSelected && "ring-2 ring-blue-500",
+        hasError && "border-red-500/20"
       )}
+      onClick={onSelect}
     >
-      {/* Header */}
-      <div className="flex items-start justify-between mb-4">
-        <div className="flex items-center space-x-3">
-          <div className="relative w-10 h-10 sm:w-12 sm:h-12">
-            <Image
-              src={SYMBOL_LOGOS[bot.symbol] || SYMBOL_LOGOS['BTC-USD']}
-              alt={bot.symbol}
-              fill
-              className="object-contain"
-              unoptimized
-            />
-          </div>
-          <div>
-            <h3 className="font-semibold text-base sm:text-lg">{bot.symbol}</h3>
-            <p className="text-xs sm:text-sm text-gray-400">Bot ID: {bot.botId.slice(0, 8)}...</p>
-          </div>
-        </div>
-        
+      {/* Status Indicator */}
+      <div className="absolute top-3 right-3">
         <div className={cn(
-          "px-2 py-1 rounded-full text-xs font-medium",
-          bot.status === 'running' ? "bg-green-500/20 text-green-500" :
-          bot.status === 'error' ? "bg-red-500/20 text-red-500" :
-          "bg-gray-500/20 text-gray-500"
+          "flex items-center gap-1 px-1.5 py-0.5 rounded-full text-xs font-medium",
+          isRunning ? "bg-green-500/10 text-green-500" : 
+          hasError ? "bg-red-500/10 text-red-500" : 
+          "bg-gray-500/10 text-gray-500"
         )}>
-          {bot.status}
+          <div className={cn(
+            "w-1.5 h-1.5 rounded-full",
+            isRunning ? "bg-green-500 animate-pulse" : 
+            hasError ? "bg-red-500" : 
+            "bg-gray-500"
+          )} />
+          {isRunning ? 'Running' : hasError ? 'Error' : 'Stopped'}
+        </div>
+      </div>
+
+      {/* Bot Header */}
+      <div className="flex items-center gap-2 mb-3">
+        <div className="relative w-10 h-10 rounded-lg overflow-hidden bg-gray-800">
+          {!imageError ? (
+            <Image
+              src={coinImageUrl}
+              alt={coinSymbol}
+              fill
+              className="object-cover"
+              onError={() => setImageError(true)}
+            />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center text-gray-600 text-xs">
+              {coinSymbol.toUpperCase()}
+            </div>
+          )}
+        </div>
+        <div>
+          <h3 className="text-base font-bold">{bot.symbol}</h3>
+          <p className="text-xs text-gray-500">ID: {bot.botId.slice(0, 6)}...</p>
         </div>
       </div>
 
       {/* Stats Grid */}
-      <div className="grid grid-cols-2 gap-3 sm:gap-4 mb-4">
-        <div>
-          <p className="text-xs text-gray-400">P&L</p>
+      <div className="grid grid-cols-2 gap-2 mb-3">
+        {/* P&L */}
+        <div className="glass rounded p-2">
+          <div className="flex items-center justify-between mb-0.5">
+            <span className="text-xs text-gray-400">P&L</span>
+            {stats.totalPnL >= 0 ? (
+              <TrendingUp className="h-3 w-3 text-green-500" />
+            ) : (
+              <TrendingDown className="h-3 w-3 text-red-500" />
+            )}
+          </div>
           <p className={cn(
-            "font-semibold text-sm sm:text-base",
+            "text-sm font-bold",
             stats.totalPnL >= 0 ? "text-green-500" : "text-red-500"
           )}>
-            ${stats.totalPnL.toFixed(2)}
-            {stats.totalPnL !== 0 && (
-              stats.totalPnL > 0 ? 
-                <TrendingUp className="inline h-3 w-3 sm:h-4 sm:w-4 ml-1" /> : 
-                <TrendingDown className="inline h-3 w-3 sm:h-4 sm:w-4 ml-1" />
-            )}
+            {stats.totalPnL >= 0 ? '+' : ''}${Math.abs(stats.totalPnL).toFixed(2)}
           </p>
         </div>
-        
-        <div>
-          <p className="text-xs text-gray-400">Position</p>
-          <p className="font-semibold text-sm sm:text-base">
-            {position.quantity.toFixed(6)}
+
+        {/* Volume */}
+        <div className="glass rounded p-2">
+          <div className="flex items-center justify-between mb-0.5">
+            <span className="text-xs text-gray-400">Volume</span>
+            <Activity className="h-3 w-3 text-blue-500" />
+          </div>
+          <p className="text-sm font-bold">
+            ${stats.totalVolume.toFixed(0)}
           </p>
-        </div>
-        
-        <div>
-          <p className="text-xs text-gray-400">Grid Level</p>
-          <p className="font-semibold text-sm sm:text-base">{bot.state?.gridLevel || 0}</p>
-        </div>
-        
-        <div>
-          <p className="text-xs text-gray-400">Trades</p>
-          <p className="font-semibold text-sm sm:text-base">{stats.totalTrades}</p>
         </div>
       </div>
 
-      {/* Volume Bar */}
-      <div className="mb-4">
-        <div className="flex justify-between text-xs text-gray-400 mb-1">
-          <span>Volume</span>
-          <span>${stats.totalVolume.toFixed(2)}</span>
+      {/* Position Info */}
+      {position && position.quantity !== 0 && (
+        <div className="mb-2 p-2 glass rounded text-xs">
+          <div className="flex items-center justify-between">
+            <span className="text-gray-400">Position</span>
+            <span className={cn(
+              "font-medium",
+              position.quantity > 0 ? "text-green-500" : "text-red-500"
+            )}>
+              {position.quantity > 0 ? 'Long' : 'Short'} {Math.abs(position.quantity).toFixed(4)}
+            </span>
+          </div>
+          <div className="flex items-center justify-between mt-0.5">
+            <span className="text-gray-400">Avg Price</span>
+            <span className="font-mono">${position.averagePrice.toFixed(2)}</span>
+          </div>
         </div>
-        <div className="h-1.5 sm:h-2 bg-gray-800 rounded-full overflow-hidden">
-          <div 
-            className="h-full bg-blue-500 transition-all duration-500"
-            style={{ width: `${Math.min((stats.totalVolume / 10000) * 100, 100)}%` }}
-          />
+      )}
+
+      {/* Grid Info */}
+      {bot.config && (
+        <div className="mb-3 text-xs text-gray-400">
+          <div className="flex justify-between">
+            <span>Grid Levels:</span>
+            <span className="text-gray-300">{bot.config.gridLevels}</span>
+          </div>
+          <div className="flex justify-between">
+            <span>Range:</span>
+            <span className="text-gray-300">
+              ${bot.config.lowerPrice} - ${bot.config.upperPrice}
+            </span>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Action Buttons */}
-      <div className="flex space-x-2">
-        <button
-          onClick={handleAction}
-          disabled={isStarting || isStopping}
-          className={cn(
-            "flex-1 py-2 px-3 sm:px-4 rounded-lg font-medium transition-colors flex items-center justify-center space-x-1 sm:space-x-2 text-sm",
-            bot.status === 'running' 
-              ? "bg-red-600 hover:bg-red-700 text-white" 
-              : "bg-blue-600 hover:bg-blue-700 text-white",
-            (isStarting || isStopping) && "opacity-50 cursor-not-allowed"
-          )}
-        >
-          {bot.status === 'running' ? (
-            <>
-              <Square className="h-3 w-3 sm:h-4 sm:w-4" />
-              <span>{isStopping ? 'Stopping...' : 'Stop'}</span>
-            </>
-          ) : (
-            <>
-              <Play className="h-3 w-3 sm:h-4 sm:w-4" />
-              <span>{isStarting ? 'Starting...' : 'Start'}</span>
-            </>
-          )}
-        </button>
+      <div className="flex gap-2 mt-auto">
+        {isRunning ? (
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              onStop()
+            }}
+            disabled={isStopping}
+            className="btn-danger text-sm py-1.5 flex-1"
+          >
+            {isStopping ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              <Square className="h-3 w-3" />
+            )}
+            Stop
+          </button>
+        ) : (
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              if (bot.exists) onStart()
+            }}
+            disabled={!bot.exists || isStarting}
+            className="btn-success text-sm py-1.5 flex-1"
+          >
+            {isStarting ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              <Play className="h-3 w-3" />
+            )}
+            Start
+          </button>
+        )}
         
         <button
           onClick={(e) => {
             e.stopPropagation()
-            // Handle delete
+            onSelect()
           }}
-          className="p-2 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors"
+          className="btn-secondary text-sm py-1.5 px-3"
         >
-          <Trash2 className="h-3 w-3 sm:h-4 sm:w-4" />
+          <Settings className="h-3 w-3" />
         </button>
       </div>
 
-      {/* Live Indicator */}
-      {bot.status === 'running' && (
-        <div className="mt-3 sm:mt-4 flex items-center justify-center space-x-2 text-xs text-gray-400">
-          <Activity className="h-3 w-3 text-green-500 animate-pulse" />
-          <span>Live Trading</span>
+      {/* Error Message */}
+      {hasError && (
+        <div className="absolute inset-x-0 bottom-0 bg-red-500/10 border-t border-red-500/20 p-1.5">
+          <div className="flex items-center gap-1 text-xs text-red-500">
+            <AlertCircle className="h-3 w-3" />
+            <span>Bot encountered an error</span>
+          </div>
         </div>
       )}
     </div>

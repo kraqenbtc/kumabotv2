@@ -1,37 +1,19 @@
 'use client'
 
-import { DollarSign, TrendingUp, Activity, BarChart3 } from 'lucide-react'
-
-interface Trade {
-  id: string;
-  side: 'buy' | 'sell';
-  price: number;
-  quantity: number;
-  timestamp: number;
-}
-
-interface BotState {
-  position?: {
-    quantity: number;
-    averagePrice: number;
-  };
-  stats?: {
-    totalPnL: number;
-    totalVolume: number;
-    totalTrades: number;
-  };
-  gridLevel?: number;
-  totalPnL?: number;
-  totalVolume?: number;
-  trades?: Trade[];
-}
+import { Bot, TrendingUp, Activity, DollarSign } from 'lucide-react'
+import { cn } from '@/lib/utils'
 
 interface Bot {
-  botId: string;
-  symbol: string;
-  status: 'running' | 'stopped' | 'error';
-  state?: BotState;
-  uptime: number;
+  botId: string
+  symbol: string
+  status: 'running' | 'stopped'
+  state?: {
+    stats?: {
+      totalPnL: number
+      totalVolume: number
+      totalTrades: number
+    }
+  }
 }
 
 interface StatsOverviewProps {
@@ -39,71 +21,81 @@ interface StatsOverviewProps {
 }
 
 export function StatsOverview({ bots }: StatsOverviewProps) {
-  // Calculate stats from all bots
-  const stats = bots.reduce(
-    (acc, bot) => {
-      if (bot.state) {
-        acc.totalPnL += parseFloat((bot.state.totalPnL || 0).toString())
-        acc.totalVolume += parseFloat((bot.state.totalVolume || 0).toString())
-        acc.totalTrades += bot.state.trades?.length || 0
-        if (bot.status === 'running') acc.activeBots++
-      }
-      return acc
-    },
-    { totalPnL: 0, totalVolume: 0, totalTrades: 0, activeBots: 0 }
-  )
+  const activeBots = bots.filter(bot => bot.status === 'running').length
+  const totalBots = bots.length
+  const totalPnL = bots.reduce((sum, bot) => sum + (bot.state?.stats?.totalPnL || 0), 0)
+  const totalVolume = bots.reduce((sum, bot) => sum + (bot.state?.stats?.totalVolume || 0), 0)
+  const totalTrades = bots.reduce((sum, bot) => sum + (bot.state?.stats?.totalTrades || 0), 0)
 
-  const statCards = [
+  const stats = [
     {
-      title: 'Total P&L',
-      value: `$${stats.totalPnL.toFixed(2)}`,
-      icon: DollarSign,
-      color: stats.totalPnL >= 0 ? 'text-green-500' : 'text-red-500',
-      bgColor: stats.totalPnL >= 0 ? 'bg-green-500/10' : 'bg-red-500/10',
+      label: 'Active Bots',
+      value: `${activeBots} / ${totalBots}`,
+      icon: Bot,
+      color: 'blue',
+      gradient: 'gradient-primary'
     },
     {
-      title: 'Total Volume',
-      value: `$${(stats.totalVolume / 1000).toFixed(1)}K`,
+      label: 'Total P&L',
+      value: `${totalPnL >= 0 ? '+' : ''}$${Math.abs(totalPnL).toFixed(2)}`,
       icon: TrendingUp,
-      color: 'text-blue-500',
-      bgColor: 'bg-blue-500/10',
+      color: totalPnL >= 0 ? 'green' : 'red',
+      gradient: totalPnL >= 0 ? 'gradient-success' : 'gradient-danger',
+      valueColor: totalPnL >= 0 ? 'text-green-500' : 'text-red-500'
     },
     {
-      title: 'Active Bots',
-      value: `${stats.activeBots} / ${bots.length}`,
+      label: 'Total Volume',
+      value: `$${totalVolume.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+      icon: DollarSign,
+      color: 'purple',
+      gradient: 'bg-gradient-to-br from-purple-600 to-pink-600'
+    },
+    {
+      label: 'Total Trades',
+      value: totalTrades.toLocaleString(),
       icon: Activity,
-      color: 'text-purple-500',
-      bgColor: 'bg-purple-500/10',
-    },
-    {
-      title: 'Total Trades',
-      value: stats.totalTrades.toString(),
-      icon: BarChart3,
-      color: 'text-orange-500',
-      bgColor: 'bg-orange-500/10',
-    },
+      color: 'orange',
+      gradient: 'gradient-warning'
+    }
   ]
 
   return (
-    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 lg:gap-6 mb-6 sm:mb-8">
-      {statCards.map((stat, index) => (
-        <div
-          key={index}
-          className="bg-gray-900/50 backdrop-blur-sm border border-gray-800 rounded-lg p-3 sm:p-4 lg:p-6 hover:border-gray-700 transition-colors"
-        >
-          <div className="flex items-center justify-between">
+    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-4">
+      {stats.map((stat, index) => {
+        const Icon = stat.icon
+        return (
+          <div
+            key={stat.label}
+            className="card p-3 card-hover group"
+          >
+            <div className="flex items-center justify-between mb-2">
+              <div className={cn(
+                "p-2 rounded-lg",
+                stat.gradient
+              )}>
+                <Icon className="h-4 w-4 text-white" />
+              </div>
+              <div className="text-xs text-gray-500">
+                {index === 0 && activeBots > 0 && (
+                  <span className="flex items-center gap-1">
+                    <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></div>
+                    Live
+                  </span>
+                )}
+              </div>
+            </div>
             <div>
-              <p className="text-xs sm:text-sm text-gray-400">{stat.title}</p>
-              <p className={`text-lg sm:text-xl lg:text-2xl font-bold mt-0.5 sm:mt-1 ${stat.color}`}>
+              <p className="text-xs text-gray-400 mb-0.5">{stat.label}</p>
+              <p className={cn(
+                "text-lg font-bold",
+                stat.valueColor || "text-white"
+              )}>
                 {stat.value}
               </p>
             </div>
-            <div className={`p-2 sm:p-3 rounded-lg ${stat.bgColor}`}>
-              <stat.icon className={`h-4 w-4 sm:h-5 sm:w-5 lg:h-6 lg:w-6 ${stat.color}`} />
-            </div>
           </div>
-        </div>
-      ))}
+        )
+      })}
     </div>
   )
 } 

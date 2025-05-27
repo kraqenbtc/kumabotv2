@@ -1,179 +1,206 @@
-import { Router, Request, Response, NextFunction } from 'express';
-import { KumaClient } from '../../services/KumaClient';
-import { getConfigBySymbol, validateConfig, Config } from '../../config';
-import { createApiError } from '../middleware/errorHandler';
+import { Router, Request, Response } from 'express';
 import { BotManager } from '../../services/BotManager';
+import { getConfigBySymbol } from '../../config';
+import { KumaClient } from '../../services/KumaClient';
+
+// Extend Request type to include user wallet
+interface AuthRequest extends Request {
+  walletAddress?: string;
+}
 
 export default function accountRoutes(botManager: BotManager): Router {
   const router = Router();
 
-  // Get account information for a specific symbol
-  router.get('/:symbol', async (req: Request, res: Response, next: NextFunction) => {
-    const { symbol } = req.params;
-    
-    try {
-      // Get config for the symbol
-      const config = getConfigBySymbol(symbol as any);
-      validateConfig(config);
-      
-      // Create KumaClient instance
-      const kumaClient = new KumaClient({
-        sandbox: config.sandbox,
-        walletPrivateKey: config.walletPrivateKey,
-        apiKey: config.apiKey,
-        apiSecret: config.apiSecret,
-        wsUrl: config.wsUrl,
-        walletAddress: config.walletAddress
-      });
-      
-      // Get wallet information
-      const wallets = await kumaClient.getWallets();
-      
-      if (!wallets || wallets.length === 0) {
-        return next(createApiError('No wallet information found', 404));
-      }
-      
-      const wallet = wallets[0];
-      
-      // Get positions for this symbol
-      const positions = wallet.positions?.filter(p => p.market === symbol) || [];
-      
-      res.json({
-        symbol,
-        account: {
-          address: wallet.wallet,
-          equity: parseFloat(wallet.equity),
-          freeCollateral: parseFloat(wallet.freeCollateral),
-          availableCollateral: parseFloat(wallet.availableCollateral),
-          buyingPower: parseFloat(wallet.buyingPower),
-          leverage: parseFloat(wallet.leverage),
-          marginRatio: parseFloat(wallet.marginRatio),
-          quoteBalance: parseFloat(wallet.quoteBalance),
-          unrealizedPnL: parseFloat(wallet.unrealizedPnL),
-          makerFeeRate: parseFloat(wallet.makerFeeRate),
-          takerFeeRate: parseFloat(wallet.takerFeeRate),
-          positions: positions.map(p => ({
-            market: p.market,
-            quantity: parseFloat(p.quantity),
-            entryPrice: parseFloat(p.entryPrice),
-            markPrice: parseFloat(p.markPrice),
-            unrealizedPnL: parseFloat(p.unrealizedPnL),
-            marginRequirement: parseFloat(p.marginRequirement),
-            leverage: parseFloat(p.leverage)
-          }))
-        }
-      });
-    } catch (error: any) {
-      next(createApiError(`Failed to get account info: ${error.message}`, 500));
+  // Middleware to extract wallet address from headers
+  const extractWallet = (req: AuthRequest, res: Response, next: any) => {
+    const walletAddress = req.headers['x-wallet-address'] as string;
+    if (!walletAddress) {
+      res.status(401).json({ error: 'Wallet address required' });
+      return;
     }
-  });
+    req.walletAddress = walletAddress;
+    next();
+  };
 
-  // Get aggregated account information
-  router.get('/', async (req: Request, res: Response, next: NextFunction) => {
+  // Apply wallet middleware to all routes
+  router.use(extractWallet);
+
+  // Get aggregated account information for the user
+  router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
     try {
-      // Get default config to fetch wallet info
-      const config = getConfigBySymbol('BTC-USD' as any);
-      validateConfig(config);
+      const botsMap = botManager.getAllBots();
       
-      const kumaClient = new KumaClient({
-        sandbox: config.sandbox,
-        walletPrivateKey: config.walletPrivateKey,
-        apiKey: config.apiKey,
-        apiSecret: config.apiSecret,
-        wsUrl: config.wsUrl,
-        walletAddress: config.walletAddress
-      });
+      // Filter bots by user's wallet address
+      const userBots = Array.from(botsMap.entries())
+        .filter(([botId, bot]) => bot.getWalletAddress() === req.walletAddress);
       
-      // Get wallet information
-      const wallets = await kumaClient.getWallets();
-      if (!wallets || wallets.length === 0) {
+      if (userBots.length === 0) {
+        // Return empty stats if user has no bots
+            res.json({
+              wallet: {
+            address: req.walletAddress,
+                equity: 0,
+                freeCollateral: 0,
+                buyingPower: 0,
+                leverage: 0,
+                unrealizedPnL: 0
+              },
+              totalEquity: 0,
+              totalPnL: 0,
+              totalVolume: 0
+            });
+            return;
+          }
+          
+      // Get the first user bot to access KumaClient
+      const [firstBotId, firstBot] = userBots[0];
+      const kumaClient = (firstBot as any).kumaClient;
+      
+      // Get wallet info from Kuma API
+      const walletInfo = await kumaClient.getWallets();
+      
+      if (!walletInfo || walletInfo.length === 0) {
         res.json({
-          balances: [],
-          totalUSDValue: 0,
-          activeBots: 0,
-          totalTrades: 0,
-          volume24h: 0,
-          pnl24h: 0
+          wallet: {
+            address: req.walletAddress,
+            equity: 0,
+            freeCollateral: 0,
+            buyingPower: 0,
+            leverage: 0,
+            unrealizedPnL: 0
+          },
+          totalEquity: 0,
+          totalPnL: 0,
+          totalVolume: 0
         });
         return;
       }
+
+      // Use the first wallet (primary wallet)
+      const primaryWallet = walletInfo[0];
       
-      const wallet = wallets[0] as any; // Type the wallet as any since SDK doesn't export types
+      // Calculate 24h volume and PnL from user's bot trades
+      const now = Date.now();
+      const dayAgo = now - (24 * 60 * 60 * 1000);
       
-      // Extract balances
-      const balances: Array<{
-        asset: string;
-        free: string;
-        locked: string;
-        total: string;
-      }> = [];
-      const assetTypes = ['BTC', 'ETH', 'SOL', 'BERA', 'XRP', 'USD'];
+      let totalVolume24h = 0;
+      let totalPnL24h = 0;
       
-      for (const asset of assetTypes) {
-        const freeValue = wallet[`free${asset}`] || '0';
-        const lockedValue = wallet[`locked${asset}`] || '0';
-        const totalValue = (parseFloat(freeValue) + parseFloat(lockedValue)).toString();
-        
-        if (parseFloat(totalValue) > 0) {
-          balances.push({
-            asset,
-            free: freeValue,
-            locked: lockedValue,
-            total: totalValue
-          });
-        }
-      }
-      
-      // Calculate stats from bots
-      const allBots = botManager.getAllBots();
-      let activeBots = 0;
-      let totalTrades = 0;
-      let volume24h = 0;
-      let pnl24h = 0;
-      
-      for (const [botId, bot] of allBots) {
-        if (bot.getStatus() === 'running') {
-          activeBots++;
-        }
-        
+      for (const [botId, bot] of userBots) {
         const state = bot.getState();
-        totalTrades += state.stats.totalTrades;
-        
-        // Calculate 24h stats from recent trades
-        const oneDayAgo = Date.now() - (24 * 60 * 60 * 1000);
-        const recentTrades = state.trades.filter(t => t.timestamp > oneDayAgo);
-        
-        for (const trade of recentTrades) {
-          volume24h += trade.cost;
-          if (trade.pnl !== null) {
-            pnl24h += trade.pnl;
+        if (state.trades) {
+          for (const trade of state.trades) {
+            if (trade.timestamp >= dayAgo) {
+              totalVolume24h += trade.price * trade.quantity;
+              if (trade.pnl) {
+                totalPnL24h += trade.pnl;
+              }
+            }
           }
         }
       }
+
+      // Get historical PnL for 24h comparison
+      try {
+        const historicalPnL = await kumaClient.getHistoricalPnL(
+          primaryWallet.wallet,
+          Math.floor(dayAgo / 1000), // Convert to seconds
+          Math.floor(now / 1000),    // Convert to seconds
+          24
+        );
+        
+        if (historicalPnL && historicalPnL.length >= 2) {
+          // Calculate 24h PnL from historical data
+          const oldestPoint = historicalPnL[historicalPnL.length - 1];
+          const newestPoint = historicalPnL[0];
+          totalPnL24h = parseFloat(newestPoint.totalPnL) - parseFloat(oldestPoint.totalPnL);
+        }
+      } catch (error) {
+        console.error('Error fetching historical PnL:', error);
+        // Use bot-calculated PnL as fallback
+      }
+
+      res.json({
+        wallet: {
+          address: primaryWallet.wallet,
+          equity: parseFloat(primaryWallet.equity),
+          freeCollateral: parseFloat(primaryWallet.freeCollateral),
+          heldCollateral: parseFloat(primaryWallet.heldCollateral || '0'),
+          availableCollateral: parseFloat(primaryWallet.availableCollateral || '0'),
+          buyingPower: parseFloat(primaryWallet.buyingPower),
+          leverage: parseFloat(primaryWallet.leverage),
+          marginRatio: parseFloat(primaryWallet.marginRatio || '0'),
+          quoteBalance: parseFloat(primaryWallet.quoteBalance || '0'),
+          unrealizedPnL: parseFloat(primaryWallet.unrealizedPnL),
+          makerFeeRate: parseFloat(primaryWallet.makerFeeRate || '0'),
+          takerFeeRate: parseFloat(primaryWallet.takerFeeRate || '0')
+        },
+        totalEquity: parseFloat(primaryWallet.equity),
+        totalPnL: totalPnL24h,
+        totalVolume: totalVolume24h,
+        positions: primaryWallet.positions || []
+      });
+    } catch (error) {
+      console.error('Error fetching account info:', error);
+      res.status(500).json({ error: 'Failed to fetch account information' });
+    }
+  });
+
+  // Get account info for specific symbol
+  router.get('/:symbol', async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+      const { symbol } = req.params;
+      const botsMap = botManager.getAllBots();
       
-      // Calculate total USD value (simplified - you might want to add price feeds)
-      const totalUSDValue = parseFloat(wallet.equity || '0');
+      // Filter bots by user's wallet address
+      const userBots = Array.from(botsMap.entries())
+        .filter(([botId, bot]) => bot.getWalletAddress() === req.walletAddress);
+      
+      if (userBots.length === 0) {
+          res.json({
+            symbol,
+            position: null,
+            balance: 0
+          });
+          return;
+        }
+        
+      // Get the first user bot to access KumaClient
+      const [firstBotId, firstBot] = userBots[0];
+      const kumaClient = (firstBot as any).kumaClient;
+      
+      // Get wallet info
+      const walletInfo = await kumaClient.getWallets();
+      if (!walletInfo || walletInfo.length === 0) {
+        res.json({
+          symbol,
+          position: null,
+          balance: 0
+        });
+        return;
+      }
+
+      const primaryWallet = walletInfo[0];
+      
+      // Find position for the symbol
+      const position = primaryWallet.positions?.find((pos: any) => pos.market === symbol) || null;
       
       res.json({
-        balances,
-        totalUSDValue,
-        activeBots,
-        totalTrades,
-        volume24h,
-        pnl24h,
-        wallet: {
-          address: wallet.wallet,
-          equity: parseFloat(wallet.equity || '0'),
-          freeCollateral: parseFloat(wallet.freeCollateral || '0'),
-          availableCollateral: parseFloat(wallet.availableCollateral || '0'),
-          buyingPower: parseFloat(wallet.buyingPower || '0'),
-          leverage: parseFloat(wallet.leverage || '0'),
-          marginRatio: parseFloat(wallet.marginRatio || '0'),
-          unrealizedPnL: parseFloat(wallet.unrealizedPnL || '0')
-        }
+        symbol,
+        position: position ? {
+          quantity: parseFloat(position.quantity),
+          entryPrice: parseFloat(position.entryPrice),
+          markPrice: parseFloat(position.markPrice),
+          unrealizedPnL: parseFloat(position.unrealizedPnL),
+          realizedPnL: parseFloat(position.realizedPnL),
+          value: parseFloat(position.value),
+          leverage: parseFloat(position.leverage)
+        } : null,
+        balance: parseFloat(primaryWallet.quoteBalance || '0')
       });
-    } catch (error: any) {
-      next(createApiError(`Failed to get aggregated account info: ${error.message}`, 500));
+    } catch (error) {
+      console.error('Error fetching account info for symbol:', error);
+      res.status(500).json({ error: 'Failed to fetch account information' });
     }
   });
 

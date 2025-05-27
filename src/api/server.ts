@@ -6,6 +6,10 @@ import { BotManager } from '../services/BotManager';
 import botRoutes from './routes/bots';
 import systemRoutes from './routes/system';
 import accountRoutes from './routes/account';
+import delegatedKeyRouter from './routes/delegatedKey';
+import walletRouter from './routes/wallet';
+import marketRoutes from './routes/market';
+import userRoutes from './routes/users';
 import { errorHandler } from './middleware/errorHandler';
 import { logger } from './middleware/logger';
 
@@ -54,6 +58,10 @@ export class ApiServer {
     // API routes
     this.app.use('/api/bots', botRoutes(this.botManager));
     this.app.use('/api/account', accountRoutes(this.botManager));
+    this.app.use('/api/delegated-key', delegatedKeyRouter);
+    this.app.use('/api/wallet', walletRouter);
+    this.app.use('/api/market', marketRoutes());
+    this.app.use('/api/users', userRoutes());
     this.app.use('/api', systemRoutes());
 
     // Static files for dashboard

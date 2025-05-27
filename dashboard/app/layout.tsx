@@ -6,8 +6,8 @@ import { Providers } from "./providers";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Kumbo - Grid Trading System",
-  description: "Advanced cryptocurrency grid trading bot for Kuma Exchange",
+  title: 'kumbo - Grid Trading System',
+  description: 'Multi-currency grid trading bot dashboard',
 };
 
 export const viewport: Viewport = {
@@ -23,7 +23,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" className="dark">
       <body className={inter.className}>
         <Providers>{children}</Providers>
       </body>

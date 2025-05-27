@@ -1,8 +1,17 @@
 import { GridBot } from '../bots/GridBot';
 import { BotConfig, SYMBOL_CONFIGS } from '../types';
-import { getConfigBySymbol, validateConfig } from '../config';
+import { getConfigBySymbol, validateConfig, Config } from '../config';
 import { KumaClient } from './KumaClient';
 import { EventEmitter } from 'events';
+
+// User-specific config type
+interface UserConfig {
+  apiKey: string;
+  apiSecret: string;
+  sandbox: boolean;
+  walletAddress: string;
+  walletPrivateKey?: string; // Optional - used for delegated wallets
+}
 
 export class BotManager extends EventEmitter {
   private bots: Map<string, GridBot> = new Map(); // key is bot ID, not symbol
@@ -12,26 +21,45 @@ export class BotManager extends EventEmitter {
     super();
   }
 
-  // Create a new bot instance
-  async createBot(botConfig: BotConfig): Promise<string> {
+  // Create a new bot instance with optional user config
+  async createBot(botConfig: BotConfig, userConfig?: UserConfig): Promise<string> {
     const symbol = botConfig.symbol;
     
-    // Get configuration for the symbol
-    const config = getConfigBySymbol(symbol);
+    let config: Config;
+    
+    // If user config provided, use it; otherwise use default config
+    if (userConfig) {
+      // Create config from user data
+      config = {
+        apiKey: userConfig.apiKey,
+        apiSecret: userConfig.apiSecret,
+        sandbox: userConfig.sandbox,
+        walletAddress: userConfig.walletAddress,
+        walletPrivateKey: userConfig.walletPrivateKey || '',
+        wsUrl: userConfig.sandbox 
+          ? 'wss://api.sandbox.kuma.bid/ws'
+          : 'wss://api.kuma.bid/ws',
+        httpUrl: userConfig.sandbox
+          ? 'https://api.sandbox.kuma.bid'
+          : 'https://api.kuma.bid'
+      };
+    } else {
+      // Get configuration for the symbol from environment
+      config = getConfigBySymbol(symbol);
     validateConfig(config);
+    }
 
-    // Create Kuma client
-    const kumaClient = new KumaClient({
-      sandbox: config.sandbox,
-      walletPrivateKey: config.walletPrivateKey,
-      apiKey: config.apiKey,
-      apiSecret: config.apiSecret,
-      wsUrl: config.wsUrl,
-      walletAddress: config.walletAddress
-    });
-
-    // Create bot instance
-    const bot = new GridBot(botConfig, config);
+    // Create bot instance with dashboardWss if available
+    const bot = new GridBot(
+      botConfig, 
+      config,
+      undefined, // dashboardWss - not used in this context
+      userConfig ? {
+        apiKey: userConfig.apiKey,
+        apiSecret: userConfig.apiSecret,
+        walletAddress: userConfig.walletAddress
+      } : undefined
+    );
     const botId = bot.getBotId();
 
     // Store bot by ID
@@ -43,7 +71,7 @@ export class BotManager extends EventEmitter {
     }
     this.botsBySymbol.get(symbol)!.add(botId);
 
-    console.log(`Bot created: ${botId} for ${symbol}`);
+    console.log(`Bot created: ${botId} for ${symbol} (wallet: ${config.walletAddress})`);
     return botId;
   }
 

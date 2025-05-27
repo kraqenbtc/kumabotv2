@@ -28,6 +28,8 @@ export class GridBot {
   protected tradeHistory: TradeHistory;
   protected wsOrderbook: WebSocket | null = null;
   protected wsPrivate: WebSocket | null = null;
+  private isStopping: boolean = false;
+  private userConfig?: { apiKey: string; apiSecret: string; walletAddress: string };
 
   // Constants
   protected readonly MIN_ORDER_INTERVAL = 500; // ms
@@ -37,24 +39,28 @@ export class GridBot {
   constructor(
     config: BotConfig,
     kumaConfig: Config,
-    dashboardWss?: WebSocketServer
+    dashboardWss?: WebSocketServer,
+    userConfig?: { apiKey: string; apiSecret: string; walletAddress: string }
   ) {
     this.config = config;
     this.kumaConfig = kumaConfig;
     this.dashboardWss = dashboardWss;
+    this.userConfig = userConfig;
     
     // Generate bot ID if not provided
     this.botId = config.botId || `${config.symbol}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     
-    // Initialize Kuma client
-    this.kumaClient = new KumaClient({
+    // Initialize Kuma client with user config if provided
+    const clientConfig = {
       sandbox: kumaConfig.sandbox,
-      walletPrivateKey: kumaConfig.walletPrivateKey,
-      apiKey: kumaConfig.apiKey,
-      apiSecret: kumaConfig.apiSecret,
+      walletPrivateKey: kumaConfig.walletPrivateKey || undefined, // Make it undefined if empty
+      apiKey: userConfig?.apiKey || kumaConfig.apiKey,
+      apiSecret: userConfig?.apiSecret || kumaConfig.apiSecret,
       wsUrl: kumaConfig.wsUrl,
-      walletAddress: kumaConfig.walletAddress
-    });
+      walletAddress: userConfig?.walletAddress || kumaConfig.walletAddress
+    };
+
+    this.kumaClient = new KumaClient(clientConfig);
 
     this.tradeHistory = new TradeHistory(config.symbol);
     
@@ -66,7 +72,7 @@ export class GridBot {
     return {
       botId: this.botId,
       symbol: this.config.symbol,
-      walletAddress: this.kumaConfig.walletAddress,
+      walletAddress: this.userConfig?.walletAddress || this.kumaConfig.walletAddress,
       status: 'stopped',
       position: {
         quantity: 0,
@@ -114,13 +120,24 @@ export class GridBot {
   }
 
   public getWalletAddress(): string {
-    return this.kumaConfig.walletAddress;
+    return this.userConfig?.walletAddress || this.kumaConfig.walletAddress;
   }
 
   // Symbol-specific price formatting
   protected formatPrice(price: number): string {
+    // Kuma API requires all prices to have exactly 8 decimal places
     const symbolConfig = SYMBOL_CONFIGS[this.config.symbol];
-    return price.toFixed(symbolConfig.priceDecimals);
+    
+    if (!symbolConfig) {
+      throw new Error(`Symbol config not found for ${this.config.symbol}`);
+    }
+    
+    // For BTC-USD (priceDecimals: 0), round to nearest integer
+    // For other symbols, round to their decimal precision
+    const roundedPrice = Math.round(price * Math.pow(10, symbolConfig.priceDecimals)) / Math.pow(10, symbolConfig.priceDecimals);
+    
+    // Always format with 8 decimal places for Kuma API
+    return roundedPrice.toFixed(8);
   }
 
   // Calculate spread based on grid level
@@ -130,8 +147,14 @@ export class GridBot {
 
   // Format quantity based on symbol
   protected formatQuantity(quantity: number): string {
+    // Kuma API requires all quantities to have exactly 8 decimal places
+    // First round to the symbol's decimal precision
     const symbolConfig = SYMBOL_CONFIGS[this.config.symbol];
-    return quantity.toFixed(symbolConfig.quantityDecimals);
+    const decimals = symbolConfig?.quantityDecimals || 8;
+    const roundedQuantity = Math.round(quantity * Math.pow(10, decimals)) / Math.pow(10, decimals);
+    
+    // Then format with 8 decimal places
+    return roundedQuantity.toFixed(8);
   }
 
   // Logging
@@ -250,8 +273,10 @@ export class GridBot {
     const sellPrice = basePrice + spread;
 
     this.log('GRID', 'Placing initial orders', {
-      buyPrice: this.formatPrice(buyPrice),
-      sellPrice: this.formatPrice(sellPrice),
+      buyPrice: buyPrice.toFixed(2),
+      sellPrice: sellPrice.toFixed(2),
+      formattedBuyPrice: this.formatPrice(buyPrice),
+      formattedSellPrice: this.formatPrice(sellPrice),
       quantity: this.config.initialQuantity
     });
 
@@ -417,7 +442,7 @@ export class GridBot {
           id: `${this.botId}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
           botId: this.botId,
           symbol: this.config.symbol,
-          walletAddress: this.kumaConfig.walletAddress,
+          walletAddress: this.getWalletAddress(),
           side,
           price,
           quantity,
@@ -540,8 +565,10 @@ export class GridBot {
       this.log('ERROR', 'Orderbook websocket error', err.message)
     );
     this.wsOrderbook.on('close', () => {
-      this.log('WS', 'Orderbook connection closed, reconnecting...');
-      setTimeout(() => this.setupWebSockets(), 1000);
+      if (!this.isStopping) {
+        this.log('WS', 'Orderbook connection closed, reconnecting...');
+        setTimeout(() => this.setupWebSockets(), 1000);
+      }
     });
 
     // Private WebSocket
@@ -559,8 +586,10 @@ export class GridBot {
         this.log('ERROR', 'Private websocket error', err.message)
       );
       this.wsPrivate.on('close', () => {
-        this.log('WS', 'Private connection closed, reconnecting...');
-        setTimeout(() => this.setupWebSockets(), 1000);
+        if (!this.isStopping) {
+          this.log('WS', 'Private connection closed, reconnecting...');
+          setTimeout(() => this.setupWebSockets(), 1000);
+        }
       });
     });
   }
@@ -596,6 +625,9 @@ export class GridBot {
   public async start(): Promise<void> {
     this.log('BOT', `Starting ${this.config.symbol} Grid Bot...`);
     
+    this.isStopping = false;
+    this.status = 'running';
+    
     await this.tradeHistory.load();
     
     // Load previous stats
@@ -612,6 +644,9 @@ export class GridBot {
   public async stop(): Promise<void> {
     this.log('BOT', 'Stopping bot...');
     
+    this.isStopping = true;
+    this.status = 'stopped';
+    
     // Close all positions
     if (this.state.position.quantity !== 0) {
       await this.placeClosingOrder();
@@ -625,9 +660,11 @@ export class GridBot {
     // Close WebSocket connections
     if (this.wsOrderbook) {
       this.wsOrderbook.close();
+      this.wsOrderbook = null;
     }
     if (this.wsPrivate) {
       this.wsPrivate.close();
+      this.wsPrivate = null;
     }
     
     this.log('BOT', 'Bot stopped');

@@ -1,128 +1,134 @@
-@import "tailwindcss";
-
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
-}
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-@layer base {
-  :root {
-    --background: 0 0% 3.9%;
-    --foreground: 0 0% 98%;
-    --primary: 217.2 91.2% 59.8%;
-    --primary-foreground: 222.2 47.4% 11.2%;
+body {
+  @apply bg-gray-950 text-gray-100 min-h-screen antialiased;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-gray-900;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-gray-700 rounded-full;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-gray-600;
+}
+
+/* Smooth scrolling */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Remove tap highlight on mobile */
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Glass morphism effects */
+.glass {
+  @apply bg-gray-900/50 backdrop-blur-xl border border-gray-800/50;
+}
+
+.glass-hover {
+  @apply hover:bg-gray-900/60 hover:border-gray-700/50 transition-all duration-200;
+}
+
+/* Gradient backgrounds */
+.gradient-primary {
+  @apply bg-gradient-to-br from-blue-600 to-purple-600;
+}
+
+.gradient-success {
+  @apply bg-gradient-to-br from-green-600 to-emerald-600;
+}
+
+.gradient-danger {
+  @apply bg-gradient-to-br from-red-600 to-pink-600;
+}
+
+.gradient-warning {
+  @apply bg-gradient-to-br from-yellow-600 to-orange-600;
+}
+
+/* Card styles */
+.card {
+  @apply glass rounded-lg shadow-xl;
+}
+
+.card-hover {
+  @apply glass-hover hover:shadow-2xl hover:scale-[1.01] cursor-pointer;
+}
+
+/* Button styles */
+.btn {
+  @apply px-3 py-1.5 rounded-lg font-medium transition-all duration-200 flex items-center justify-center gap-2 text-sm;
+}
+
+.btn-primary {
+  @apply btn bg-blue-600 hover:bg-blue-700 text-white;
+}
+
+.btn-secondary {
+  @apply btn bg-gray-800 hover:bg-gray-700 text-gray-100;
+}
+
+.btn-success {
+  @apply btn bg-green-600 hover:bg-green-700 text-white;
+}
+
+.btn-danger {
+  @apply btn bg-red-600 hover:bg-red-700 text-white;
+}
+
+/* Input styles */
+.input {
+  @apply w-full px-3 py-2 bg-gray-900/50 border border-gray-800 rounded-lg focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all duration-200 text-sm;
+}
+
+/* Animation utilities */
+@keyframes pulse-slow {
+  0%, 100% {
+    opacity: 1;
   }
-  
-  html {
-    @apply antialiased;
-  }
-  
-  body {
-    @apply bg-gray-950 text-gray-100 min-h-screen;
-  }
-  
-  /* Custom scrollbar */
-  ::-webkit-scrollbar {
-    @apply w-2 h-2;
-  }
-  
-  ::-webkit-scrollbar-track {
-    @apply bg-gray-900;
-  }
-  
-  ::-webkit-scrollbar-thumb {
-    @apply bg-gray-700 rounded-full;
-  }
-  
-  ::-webkit-scrollbar-thumb:hover {
-    @apply bg-gray-600;
-  }
-  
-  /* Mobile tap highlight */
-  * {
-    -webkit-tap-highlight-color: transparent;
-  }
-  
-  /* Smooth scrolling */
-  html {
-    scroll-behavior: smooth;
-  }
-  
-  /* Prevent horizontal scroll on mobile */
-  html, body {
-    overflow-x: hidden;
+  50% {
+    opacity: 0.5;
   }
 }
 
-@layer components {
-  /* Container with responsive padding */
-  .container {
-    @apply mx-auto w-full;
-    padding-left: 1rem;
-    padding-right: 1rem;
+.animate-pulse-slow {
+  animation: pulse-slow 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0px);
   }
-  
-  @media (min-width: 640px) {
-    .container {
-      padding-left: 1.5rem;
-      padding-right: 1.5rem;
-    }
-  }
-  
-  @media (min-width: 1024px) {
-    .container {
-      padding-left: 2rem;
-      padding-right: 2rem;
-    }
-  }
-  
-  /* Responsive text sizing */
-  .text-responsive {
-    @apply text-sm sm:text-base;
-  }
-  
-  /* Card hover effect */
-  .card-hover {
-    @apply transition-all duration-200 hover:scale-[1.02] hover:shadow-lg;
+  50% {
+    transform: translateY(-10px);
   }
 }
 
+.animate-float {
+  animation: float 3s ease-in-out infinite;
+}
+
+/* Responsive utilities */
 @layer utilities {
-  /* Hide scrollbar but keep functionality */
-  .scrollbar-hide {
-    -ms-overflow-style: none;
-    scrollbar-width: none;
+  .text-balance {
+    text-wrap: balance;
   }
   
-  .scrollbar-hide::-webkit-scrollbar {
-    display: none;
-  }
-  
-  /* Safe area insets for mobile devices */
   .safe-top {
     padding-top: env(safe-area-inset-top);
   }

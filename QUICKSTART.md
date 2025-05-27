@@ -1,4 +1,6 @@
-# Kumbo Quick Start Guide
+# kumbo Quick Start Guide
+
+Welcome to kumbo! This guide will help you get your grid trading bot up and running quickly.
 
 ## 🚀 Getting Started
 
@@ -33,7 +35,7 @@ npm install
 cd dashboard && npm install && cd ..
 ```
 
-### 3. Start Kumbo
+### 3. Start kumbo
 
 The easiest way to start everything:
 ```bash
@@ -47,9 +49,9 @@ This will:
 - ✅ Start the dashboard on port 3000
 - ✅ Show you all the URLs and quick commands
 
-### 4. Access Kumbo
+### 4. Access kumbo
 
-- 📊 **Dashboard**: http://localhost:3000
+- 📊 **Dashboard**: http://localhost:3001
 - 🔧 **API Server**: http://localhost:4000
 - 📚 **API Docs**: http://localhost:4000/api/docs
 
@@ -126,4 +128,8 @@ npm run start
 
 - Check the main [README.md](README.md) for detailed documentation
 - Review API endpoints at http://localhost:4000/api/docs
-- Check console logs for detailed error messages 
+- Check console logs for detailed error messages
+
+---
+
+Happy trading with kumbo! 🚀 

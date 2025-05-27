@@ -1,16 +1,36 @@
-# Kumbo - Advanced Grid Trading System
+# kumbo - Grid Trading Bot for Kuma Exchange
 
-Kumbo is a sophisticated grid trading bot system for Kuma Exchange, built with TypeScript and featuring a modern web dashboard.
+kumbo is a sophisticated grid trading bot system designed for the Kuma Exchange. It supports multiple cryptocurrencies with individual grid trading strategies.
+
+## 🔐 Security: Delegated Keys (Recommended)
+
+kumbo now supports **Delegated Keys** for enhanced security. This means you never need to share your main wallet's private key!
+
+### How Delegated Keys Work:
+1. kumbo generates a separate trading key
+2. You authorize this key on Kuma Exchange
+3. The bot can only trade, not withdraw funds
+4. Your main wallet private key stays safe
+
+### Setup Delegated Key:
+```bash
+# 1. Generate a delegated key
+npm run delegated-key
+
+# 2. Select option 1 and enter your wallet address
+# 3. Note the generated delegated address
+# 4. Go to Kuma Exchange and authorize this address
+# 5. Set KUMA_USE_DELEGATED_KEY=true in your .env file
+```
 
 ## Features
 
-- **Multi-Bot Support**: Run multiple bots with different configurations simultaneously
-- **Unique Bot IDs**: Each bot has a unique identifier for easy tracking
-- **Web Dashboard**: Modern React/Next.js dashboard for monitoring and control
-- **Real-time Updates**: WebSocket integration for live price and order updates
-- **Account Management**: View wallet balances and positions across all symbols
-- **Trade History**: Persistent trade tracking with P&L calculations
-- **Risk Management**: Stop loss and take profit settings
+- **Multi-Currency Support**: Trade BTC, ETH, SOL, BERA, and XRP against USD
+- **Grid Trading Strategy**: Automated buy/sell orders at predefined price levels
+- **Risk Management**: Stop loss and take profit functionality
+- **Web Dashboard**: Real-time monitoring and control via web interface
+- **TypeScript**: Fully typed for better reliability
+- **WebSocket Integration**: Real-time market data and order updates
 
 ## Supported Trading Pairs
 
@@ -152,3 +172,14 @@ This bot is for educational purposes only. Cryptocurrency trading carries signif
 ---
 
 Built with ❤️ by kraqenbtc 
+
+## Quick Start
+
+Once running, access the kumbo dashboard at:
+```
+http://localhost:3001
+```
+
+## Project Name
+
+kumbo - A professional grid trading system for cryptocurrency markets. 

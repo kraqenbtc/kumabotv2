@@ -10,22 +10,30 @@ export class KumaClient {
 
   constructor(config: {
     sandbox: boolean;
-    walletPrivateKey: string;
+    walletPrivateKey?: string; // Make optional - only needed for wallet signature auth
     apiKey: string;
     apiSecret: string;
     wsUrl: string;
-    walletAddress: string; // Pass wallet address directly
+    walletAddress: string;
   }) {
     this.publicClient = new kuma.RestPublicClient({
       sandbox: config.sandbox
     });
 
-    this.authenticatedClient = new kuma.RestAuthenticatedClient({
+    // If walletPrivateKey is provided, use it (for backward compatibility)
+    // Otherwise, rely on API key/secret authentication only
+    const authConfig: any = {
       sandbox: config.sandbox,
-      walletPrivateKey: config.walletPrivateKey,
       apiKey: config.apiKey,
       apiSecret: config.apiSecret
-    });
+    };
+
+    // Only add walletPrivateKey if provided
+    if (config.walletPrivateKey) {
+      authConfig.walletPrivateKey = config.walletPrivateKey;
+    }
+
+    this.authenticatedClient = new kuma.RestAuthenticatedClient(authConfig);
 
     this.wsUrl = config.wsUrl;
     this.walletAddress = config.walletAddress;
@@ -98,6 +106,21 @@ export class KumaClient {
       ...(params?.market && { market: params.market }),
       nonce: uuid()
     });
+  }
+
+  async getHistoricalPnL(wallet: string, start: number, end: number, limit: number = 50) {
+    try {
+      return await this.authenticatedClient.getHistoricalPnL({
+        wallet,
+        start,
+        end,
+        limit,
+        nonce: uuid()
+      });
+    } catch (error) {
+      console.error('Error fetching historical PnL:', error);
+      return [];
+    }
   }
 
   async getWsToken(): Promise<string> {

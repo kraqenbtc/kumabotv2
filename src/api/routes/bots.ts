@@ -4,14 +4,42 @@ import { createApiError } from '../middleware/errorHandler';
 import { BotConfig, SYMBOL_CONFIGS } from '../../types';
 import { KumaClient } from '../../services/KumaClient';
 import { getConfigBySymbol, validateConfig } from '../../config';
+import { userService } from '../../services/UserService';
+import { delegatedWalletService } from '../../services/DelegatedWalletService';
+
+// Extend Request type to include user wallet
+interface AuthRequest extends Request {
+  walletAddress?: string;
+}
 
 export default function botRoutes(botManager: BotManager): Router {
   const router = Router();
 
-  // Get all bots
-  router.get('/', (req: Request, res: Response) => {
+  // Middleware to extract wallet address from headers
+  const extractWallet = (req: AuthRequest, res: Response, next: NextFunction) => {
+    const walletAddress = req.headers['x-wallet-address'] as string;
+    if (!walletAddress) {
+      return next(createApiError('Wallet address required', 401));
+    }
+    req.walletAddress = walletAddress;
+    next();
+  };
+
+  // Apply wallet middleware to all routes except config endpoints
+  router.use((req: AuthRequest, res: Response, next: NextFunction) => {
+    // Skip auth for config endpoints
+    if (req.path.startsWith('/config/')) {
+      return next();
+    }
+    extractWallet(req, res, next);
+  });
+
+  // Get all bots for the user
+  router.get('/', (req: AuthRequest, res: Response) => {
     const allBots = botManager.getAllBots();
-    const response = Array.from(allBots.entries()).map(([botId, bot]) => ({
+    const userBots = Array.from(allBots.entries())
+      .filter(([botId, bot]) => bot.getWalletAddress() === req.walletAddress)
+      .map(([botId, bot]) => ({
       botId,
       symbol: bot.getConfig().symbol,
       status: bot.getStatus(),
@@ -20,17 +48,19 @@ export default function botRoutes(botManager: BotManager): Router {
     }));
     
     res.json({
-      count: response.length,
-      bots: response
+      count: userBots.length,
+      bots: userBots
     });
   });
 
-  // Get bots by symbol
-  router.get('/symbol/:symbol', (req: Request, res: Response, next: NextFunction) => {
+  // Get bots by symbol for the user
+  router.get('/symbol/:symbol', (req: AuthRequest, res: Response, next: NextFunction) => {
     const { symbol } = req.params;
     const bots = botManager.getBotsBySymbol(symbol);
     
-    const response = bots.map(bot => ({
+    const userBots = bots
+      .filter(bot => bot.getWalletAddress() === req.walletAddress)
+      .map(bot => ({
       botId: bot.getBotId(),
       symbol: bot.getConfig().symbol,
       status: bot.getStatus(),
@@ -40,18 +70,23 @@ export default function botRoutes(botManager: BotManager): Router {
     
     res.json({
       symbol,
-      count: response.length,
-      bots: response
+      count: userBots.length,
+      bots: userBots
     });
   });
 
-  // Get specific bot by ID
-  router.get('/:botId', (req: Request, res: Response, next: NextFunction) => {
+  // Get specific bot by ID (verify ownership)
+  router.get('/:botId', (req: AuthRequest, res: Response, next: NextFunction) => {
     const { botId } = req.params;
     const bot = botManager.getBot(botId);
     
     if (!bot) {
       return next(createApiError(`Bot ${botId} not found`, 404));
+    }
+    
+    // Verify ownership
+    if (bot.getWalletAddress() !== req.walletAddress) {
+      return next(createApiError('Unauthorized', 403));
     }
     
     const state = bot.getState();
@@ -72,21 +107,43 @@ export default function botRoutes(botManager: BotManager): Router {
     });
   });
 
-  // Create and start a new bot
-  router.post('/create', async (req: Request, res: Response, next: NextFunction) => {
-    const { symbol, config: customConfig } = req.body;
+  // Create and start a new bot with user config
+  router.post('/create', async (req: AuthRequest, res: Response, next: NextFunction) => {
+    const { symbol, config: customConfig, sandbox = true } = req.body;
     
     if (!symbol || !SYMBOL_CONFIGS[symbol as keyof typeof SYMBOL_CONFIGS]) {
       return next(createApiError('Invalid symbol', 400));
     }
     
     try {
+      // Get user from database
+      const user = await userService.getUser(req.walletAddress!);
+      
+      if (!user) {
+        return next(createApiError('User not found. Please configure API keys first.', 404));
+      }
+      
+      // Get or create delegated wallet for the user
+      const delegatedWallet = await delegatedWalletService.createOrGetDelegatedWallet(req.walletAddress!);
+      
       // Get default config and merge with custom config
       const defaultConfig = getDefaultBotConfig(symbol as keyof typeof SYMBOL_CONFIGS);
-      const botConfig = { ...defaultConfig, ...customConfig, enabled: true };
+      const botConfig = { 
+        ...defaultConfig, 
+        ...customConfig, 
+        enabled: true,
+        walletAddress: delegatedWallet.address // Use delegated wallet address
+      };
       
-      // Create bot
-      const botId = await botManager.createBot(botConfig);
+      // Create bot with user-specific config from database and delegated wallet
+      const botId = await botManager.createBot(botConfig, {
+        apiKey: user.apiKey,
+        apiSecret: user.apiSecret,
+        sandbox: user.sandbox,
+        walletAddress: delegatedWallet.address,
+        walletPrivateKey: delegatedWallet.privateKey // Now we have a private key for signing
+      });
+      
       const bot = botManager.getBot(botId);
       
       if (!bot) {
@@ -103,15 +160,16 @@ export default function botRoutes(botManager: BotManager): Router {
         botId,
         symbol,
         status: bot.getStatus(),
-        config: botConfig
+        config: botConfig,
+        delegatedWallet: delegatedWallet.address // Return delegated wallet address for transparency
       });
     } catch (error: any) {
       next(createApiError(`Failed to create bot: ${error.message}`, 500));
     }
   });
 
-  // Start a bot by ID
-  router.post('/:botId/start', async (req: Request, res: Response, next: NextFunction) => {
+  // Start a bot by ID (verify ownership)
+  router.post('/:botId/start', async (req: AuthRequest, res: Response, next: NextFunction) => {
     const { botId } = req.params;
     
     try {
@@ -119,6 +177,11 @@ export default function botRoutes(botManager: BotManager): Router {
       
       if (!bot) {
         return next(createApiError(`Bot ${botId} not found`, 404));
+      }
+      
+      // Verify ownership
+      if (bot.getWalletAddress() !== req.walletAddress) {
+        return next(createApiError('Unauthorized', 403));
       }
       
       if (bot.getStatus() === 'running') {
@@ -141,8 +204,8 @@ export default function botRoutes(botManager: BotManager): Router {
     }
   });
 
-  // Stop a bot by ID
-  router.post('/:botId/stop', async (req: Request, res: Response, next: NextFunction) => {
+  // Stop a bot by ID (verify ownership)
+  router.post('/:botId/stop', async (req: AuthRequest, res: Response, next: NextFunction) => {
     const { botId } = req.params;
     
     try {
@@ -150,6 +213,11 @@ export default function botRoutes(botManager: BotManager): Router {
       
       if (!bot) {
         return next(createApiError(`Bot ${botId} not found`, 404));
+      }
+      
+      // Verify ownership
+      if (bot.getWalletAddress() !== req.walletAddress) {
+        return next(createApiError('Unauthorized', 403));
       }
       
       if (bot.getStatus() !== 'running') {
@@ -172,11 +240,22 @@ export default function botRoutes(botManager: BotManager): Router {
     }
   });
 
-  // Delete a bot by ID
-  router.delete('/:botId', async (req: Request, res: Response, next: NextFunction) => {
+  // Delete a bot by ID (verify ownership)
+  router.delete('/:botId', async (req: AuthRequest, res: Response, next: NextFunction) => {
     const { botId } = req.params;
     
     try {
+      const bot = botManager.getBot(botId);
+      
+      if (!bot) {
+        return next(createApiError(`Bot ${botId} not found`, 404));
+      }
+      
+      // Verify ownership
+      if (bot.getWalletAddress() !== req.walletAddress) {
+        return next(createApiError('Unauthorized', 403));
+      }
+      
       const success = await botManager.removeBot(botId);
       
       if (!success) {
@@ -300,7 +379,7 @@ export default function botRoutes(botManager: BotManager): Router {
     res.json(stats);
   });
 
-  // Get default config for a symbol (for UI)
+  // Get default config for a symbol (for UI) - PUBLIC ENDPOINT
   router.get('/config/:symbol', (req: Request, res: Response, next: NextFunction) => {
     const { symbol } = req.params;
     
