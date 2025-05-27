@@ -57,7 +57,8 @@ export class BotManager extends EventEmitter {
       userConfig ? {
         apiKey: userConfig.apiKey,
         apiSecret: userConfig.apiSecret,
-        walletAddress: userConfig.walletAddress
+        walletAddress: userConfig.walletAddress,
+        walletPrivateKey: userConfig.walletPrivateKey
       } : undefined
     );
     const botId = bot.getBotId();

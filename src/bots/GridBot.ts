@@ -29,7 +29,7 @@ export class GridBot {
   protected wsOrderbook: WebSocket | null = null;
   protected wsPrivate: WebSocket | null = null;
   private isStopping: boolean = false;
-  private userConfig?: { apiKey: string; apiSecret: string; walletAddress: string };
+  private userConfig?: { apiKey: string; apiSecret: string; walletAddress: string; walletPrivateKey?: string };
 
   // Constants
   protected readonly MIN_ORDER_INTERVAL = 500; // ms
@@ -40,7 +40,7 @@ export class GridBot {
     config: BotConfig,
     kumaConfig: Config,
     dashboardWss?: WebSocketServer,
-    userConfig?: { apiKey: string; apiSecret: string; walletAddress: string }
+    userConfig?: { apiKey: string; apiSecret: string; walletAddress: string; walletPrivateKey?: string }
   ) {
     this.config = config;
     this.kumaConfig = kumaConfig;
@@ -53,7 +53,7 @@ export class GridBot {
     // Initialize Kuma client with user config if provided
     const clientConfig = {
       sandbox: kumaConfig.sandbox,
-      walletPrivateKey: kumaConfig.walletPrivateKey || undefined, // Make it undefined if empty
+      walletPrivateKey: userConfig?.walletPrivateKey || kumaConfig.walletPrivateKey || undefined,
       apiKey: userConfig?.apiKey || kumaConfig.apiKey,
       apiSecret: userConfig?.apiSecret || kumaConfig.apiSecret,
       wsUrl: kumaConfig.wsUrl,

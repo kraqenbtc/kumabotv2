@@ -98,24 +98,44 @@ export default function ProfilePage() {
           </div>
         </div>
 
-        {/* Delegated Wallet Info */}
+        {/* Trading Wallet Info */}
         <div className="glass rounded-xl p-6 mb-6">
           <div className="flex items-center gap-3 mb-4">
             <div className="p-2 bg-indigo-500/10 rounded-lg">
               <Shield className="h-5 w-5 text-indigo-500" />
             </div>
-            <h2 className="text-lg font-semibold">Trading Wallet</h2>
+            <h2 className="text-lg font-semibold">Secure Trading Setup</h2>
           </div>
           
-          <div className="bg-indigo-500/10 border border-indigo-500/20 rounded-lg p-4">
-            <p className="text-sm text-indigo-200 mb-2">
-              <strong>How it works:</strong> For security, we create a separate trading wallet for your bots. 
-              This wallet is controlled by our system but can only trade with your API keys. 
-              Your main wallet and private keys remain completely secure.
-            </p>
-            <p className="text-xs text-indigo-200/60">
-              This delegated wallet approach ensures maximum security while enabling automated trading.
-            </p>
+          <div className="space-y-4">
+            <div className="bg-indigo-500/10 border border-indigo-500/20 rounded-lg p-4">
+              <h3 className="font-medium text-indigo-200 mb-2 flex items-center gap-2">
+                <Shield className="h-4 w-4" />
+                How We Keep Your Funds Safe
+              </h3>
+              <ul className="space-y-2 text-sm text-indigo-200/80">
+                <li className="flex items-start gap-2">
+                  <span className="text-indigo-400 mt-0.5">•</span>
+                  <span>Your main wallet's private key is <strong>never</strong> shared or stored</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-indigo-400 mt-0.5">•</span>
+                  <span>We create a separate trading wallet for each user</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-indigo-400 mt-0.5">•</span>
+                  <span>This trading wallet can only execute trades with your API keys</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-indigo-400 mt-0.5">•</span>
+                  <span>All trading wallets are encrypted with AES-256 encryption</span>
+                </li>
+              </ul>
+            </div>
+            
+            <div className="text-xs text-gray-400 italic">
+              This delegated wallet approach ensures maximum security while enabling 24/7 automated trading.
+            </div>
           </div>
         </div>
 
